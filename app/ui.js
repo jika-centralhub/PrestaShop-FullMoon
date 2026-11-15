@@ -3,7 +3,7 @@ const $=id=>document.getElementById(id);
 let token=location.hash.slice(1)||sessionStorage.getItem('fullmoon-session');
 if(token)sessionStorage.setItem('fullmoon-session',token);
 history.replaceState(null,'',location.pathname);
-let sheets=[];
+let sheets=[],pdfReviewRequired=false,importVersion=0;
 const currency=value=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(Number(value));
 function message(text,error=false){$('message').textContent=text;$('message').className=error?'bad':'';}
 function invalidate(){$('results').hidden=true;resetCart();}
@@ -18,19 +18,22 @@ function mapping(){
  options($('reference'),headers,/réf|ref|sku|code article/i);options($('quantity'),headers,/quant|qty|qté|qte|nb/i);options($('price'),headers,/prix|price|tarif/i);invalidate();
 }
 $('file').addEventListener('change',async()=>{
- invalidate();$('check').disabled=true;const file=$('file').files[0];if(!file)return;
+ invalidate();const version=++importVersion;pdfReviewRequired=false;$('pdfreview').hidden=true;$('pdfconfirmed').checked=false;$('pdfrows').replaceChildren();$('check').disabled=true;const file=$('file').files[0];if(!file)return;
  try{
  if(file.size>8000000)throw Error('Fichier limité à 8 Mo.');message('Lecture du fichier de commande…');
  const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
- const data=await api('/import',{name:file.name,data:btoa(binary)});sheets=data.sheets;
+ const data=await api('/import',{name:file.name,data:btoa(binary)});if(version!==importVersion)return;sheets=data.sheets;
  $('sheet').replaceChildren(...sheets.map((s,i)=>new Option(s.name,i)));$('mapping').hidden=false;$('filename').textContent=file.name;mapping();$('check').disabled=false;message('Fichier chargé. Vérifiez les colonnes. Les prix du fichier doivent être hors taxes.');
- }catch(error){message(error.message,true);}
+ if(data.pdf_review_required){pdfReviewRequired=true;$('pdfreview').hidden=false;$('pdfnotice').textContent=data.notice;$('check').disabled=true;for(const row of sheets[0].rows.slice(1)){const tr=document.createElement('tr');for(const value of row){const td=document.createElement('td');td.textContent=value;tr.append(td);}$('pdfrows').append(tr);}await detectPdfCustomer(data.customer_hint,version);}
+ }catch(error){if(version===importVersion)message(error.message,true);}
 });
 $('sheet').addEventListener('change',mapping);$('header').addEventListener('change',mapping);
 $('source').addEventListener('change',()=>{const show=$('source').value==='excel';$('pricebox').hidden=!show;invalidate();});
 for(const id of ['reference','quantity','price','shop'])$(id).addEventListener('input',invalidate);
+$('pdfconfirmed').addEventListener('change',()=>{$('check').disabled=pdfReviewRequired&&!$('pdfconfirmed').checked;});
 function payload(){
- const sheet=sheets[Number($('sheet').value)];if(!sheet)throw Error('Choisissez un fichier Excel ou CSV.');
+ if(pdfReviewRequired&&!$('pdfconfirmed').checked)throw Error('Vérifiez les lignes extraites du PDF puis cochez la confirmation.');
+ const sheet=sheets[Number($('sheet').value)];if(!sheet)throw Error('Choisissez un fichier Excel, CSV ou PDF.');
  const ref=Number($('reference').value),qty=Number($('quantity').value),price=Number($('price').value);
  if(ref===qty)throw Error('La référence et la quantité doivent utiliser deux colonnes distinctes.');
  const header=Number($('header').value);if(!Number.isInteger(header)||header<1)throw Error('Ligne d’en-tête invalide.');
@@ -177,3 +180,20 @@ $('shop').addEventListener('input',()=>{
  $('clientdirectory').replaceChildren(new Option('Rechargez le répertoire de cette boutique',''));$('clientdirectory').disabled=true;
  $('loadclients').disabled=false;$('clientinfo').textContent='';$('directorystatus').textContent='Boutique modifiée. Rechargez les clients.';
 });
+
+
+async function detectPdfCustomer(hint,version){
+ clearContact();directoryVersion++;const directoryRequest=directoryVersion;
+ $('loadclients').disabled=false;
+ directoryClients=[];$('clientdirectory').replaceChildren(new Option('Client PDF à identifier',''));$('clientdirectory').disabled=true;$('clientfilter').value='';$('clientfilter').disabled=true;
+ $('clientinfo').textContent='';$('pdfclientstatus').textContent='Recherche du client acheteur…';
+ if(!hint||!hint.email){$('pdfclientstatus').textContent=hint?.reason||'E-mail acheteur absent. Sélectionnez le client manuellement.';return;}
+ try{
+  const result=await api('/customers/match',{shop:$('shop').value,email:hint.email});
+  if(version!==importVersion||directoryRequest!==directoryVersion)return;
+  if(result.status!=='unique'){$('pdfclientstatus').textContent='Client absent ou correspondances multiples pour '+hint.email+'. Vérifiez le client manuellement.';return;}
+  directoryClients=result.customers;showDirectory();$('clientdirectory').disabled=false;$('clientfilter').disabled=false;
+  $('clientdirectory').value=String(result.customers[0].id);$('clientdirectory').dispatchEvent(new Event('change'));
+  $('pdfclientstatus').textContent='Client identifié par correspondance exacte de l’e-mail acheteur : '+hint.email+'. Sa fiche est affichée en consultation. Vérifiez son identité et ses adresses.';
+ }catch(error){if(version===importVersion&&directoryRequest===directoryVersion)$('pdfclientstatus').textContent='Identification automatique indisponible. Sélectionnez le client manuellement. '+error.message;}
+}

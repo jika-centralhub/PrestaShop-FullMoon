@@ -3,3 +3,5 @@
 
 #cartsection{border:2px solid #739b7f}summary{cursor:pointer;font-weight:600;padding:12px 0}#cartconfirmation{background:#edf3e6;padding:20px;border-radius:8px;margin-top:20px}#cartmessage{font-weight:600}#cartconfig{border-bottom:1px solid #dce3dc;padding-bottom:16px}#carthistory p{border-bottom:1px solid #e3e9e1;padding-bottom:12px}
 #directory{padding:8px 0 24px;margin-bottom:24px;border-bottom:1px solid #dce3dc}.contactaddress{padding:16px;background:#f4f7f0;border-radius:8px}.contactaddress p{margin-bottom:0}#clientemail{overflow-wrap:anywhere}
+
+.reviewcheck{display:flex;gap:12px;align-items:center;margin:18px 0}.reviewcheck input{width:auto;margin:0}#pdfreview{margin-top:20px;padding:16px;border:1px solid #cdd9d0;border-radius:8px}#pdfreview .tablewrap{max-height:420px;overflow:auto}
