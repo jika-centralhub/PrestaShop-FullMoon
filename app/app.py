@@ -162,10 +162,7 @@ async def checked_cart(payload):
                     raise ValueError('Stock modifié ou ambigu. Vérification manuelle requise.')
                 fresh[item['stock_id']] = max(0, int(stock['quantity']))
             item['available'] = fresh[item['stock_id']]
-        vat = number(payload.get('vat'), 'TVA')
-        if vat > 100:
-            raise ValueError('TVA limitée à 100 %.')
-        result = allocate(rows, catalog, vat, 'ht', 'catalog')
+        result = allocate(rows, catalog, 'catalog')
         for row in merged_rows(result):
             if row['quantity'] < minima[(row['id_product'], row['id_product_attribute'])]:
                 raise ValueError('Une quantité disponible est inférieure au minimum de vente du produit. Corrigez la commande avant de créer le panier.')
@@ -365,11 +362,10 @@ async def resolve(session, reference, shop):
     return {'name':product['name'],'stock_id':str(stock['id']),'available':max(0,int(stock['quantity'])),'catalog_price':str(price),'product_id':int(product['id']),'attribute_id':attribute}
 
 
-def allocate(rows, catalog, vat, price_mode, source):
+def allocate(rows, catalog, source):
     used = {}
     output = []
     total_ht = Decimal(0)
-    total_tax = Decimal(0)
     for index, raw in enumerate(rows):
         ref = str(raw.get('reference','')).strip()
         line = {'reference':ref,'line':raw.get('line',index+1),'requested':raw.get('quantity',''),'accepted':0,'error':''}
@@ -381,32 +377,25 @@ def allocate(rows, catalog, vat, price_mode, source):
             if 'error' in item:
                 raise ValueError(item['error'])
             unit = number(raw.get('price'), 'Prix') if source == 'excel' else number(item['catalog_price'],'Prix catalogue')
-            if source == 'excel' and price_mode == 'ttc':
-                unit = unit / (1 + vat / 100)
             unit = unit.quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP)
             remaining = max(0,item['available'] - used.get(item['stock_id'],0))
             accepted = min(quantity, remaining)
             used[item['stock_id']] = used.get(item['stock_id'],0) + accepted
             subtotal = (unit * accepted).quantize(CENT, rounding=ROUND_HALF_UP)
-            tax = (subtotal * vat / 100).quantize(CENT, rounding=ROUND_HALF_UP)
             total_ht += subtotal
-            total_tax += tax
-            line.update(item, requested=quantity, accepted=accepted, missing=quantity-accepted, unit_ht=str(unit), subtotal=str(subtotal), tax=str(tax))
+            line.update(item, requested=quantity, accepted=accepted, missing=quantity-accepted, unit_ht=str(unit), subtotal=str(subtotal))
         except (ValueError, KeyError, InvalidOperation) as error:
             line['error'] = str(error)
         output.append(line)
-    return {'rows':output,'ht':str(total_ht),'tax':str(total_tax),'ttc':str(total_ht+total_tax),'checked_at':datetime.now().astimezone().isoformat(timespec='seconds')}
+    return {'rows':output,'ht':str(total_ht),'checked_at':datetime.now().astimezone().isoformat(timespec='seconds')}
 
 
 async def check(payload):
     rows = payload.get('rows',[])
     if not rows or len(rows)>500:
         raise ValueError('Importez entre 1 et 500 lignes de commande.')
-    vat = number(payload.get('vat'), 'TVA')
-    if vat > 100:
-        raise ValueError('TVA limitée à 100 %.')
-    if payload.get('price_source') not in ('excel','catalog') or payload.get('price_mode') not in ('ht','ttc'):
-        raise ValueError('Choisissez la source et le type des prix.')
+    if payload.get('price_source') not in ('excel','catalog') or payload.get('price_mode', 'ht') != 'ht':
+        raise ValueError('Choisissez des prix hors taxes. Les prix TTC ne sont plus pris en charge.')
     shop = int(number(payload.get('shop'), 'Identifiant boutique', True))
     if shop < 1:
         raise ValueError('Identifiant boutique requis.')
@@ -423,7 +412,7 @@ async def check(payload):
                         catalog[ref] = await resolve(session,ref,shop)
                     except ValueError as error:
                         catalog[ref] = {'error':str(error)}
-    return allocate(rows,catalog,vat,payload['price_mode'],payload['price_source'])
+    return allocate(rows,catalog,payload['price_source'])
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -23,12 +23,12 @@ $('file').addEventListener('change',async()=>{
  if(file.size>8000000)throw Error('Fichier limité à 8 Mo.');message('Lecture du fichier de commande…');
  const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
  const data=await api('/import',{name:file.name,data:btoa(binary)});sheets=data.sheets;
- $('sheet').replaceChildren(...sheets.map((s,i)=>new Option(s.name,i)));$('mapping').hidden=false;$('filename').textContent=file.name;mapping();$('check').disabled=false;message('Fichier chargé. Vérifiez les colonnes et renseignez la TVA.');
+ $('sheet').replaceChildren(...sheets.map((s,i)=>new Option(s.name,i)));$('mapping').hidden=false;$('filename').textContent=file.name;mapping();$('check').disabled=false;message('Fichier chargé. Vérifiez les colonnes. Les prix du fichier doivent être hors taxes.');
  }catch(error){message(error.message,true);}
 });
 $('sheet').addEventListener('change',mapping);$('header').addEventListener('change',mapping);
-$('source').addEventListener('change',()=>{const show=$('source').value==='excel';$('pricebox').hidden=!show;$('modebox').hidden=!show;invalidate();});
-for(const id of ['reference','quantity','price','shop','vat','mode'])$(id).addEventListener('input',invalidate);
+$('source').addEventListener('change',()=>{const show=$('source').value==='excel';$('pricebox').hidden=!show;invalidate();});
+for(const id of ['reference','quantity','price','shop'])$(id).addEventListener('input',invalidate);
 function payload(){
  const sheet=sheets[Number($('sheet').value)];if(!sheet)throw Error('Choisissez un fichier Excel ou CSV.');
  const ref=Number($('reference').value),qty=Number($('quantity').value),price=Number($('price').value);
@@ -36,7 +36,7 @@ function payload(){
  const header=Number($('header').value);if(!Number.isInteger(header)||header<1)throw Error('Ligne d’en-tête invalide.');
  const rows=sheet.rows.slice(header).map((row,i)=>({reference:(row[ref]||'').trim(),quantity:(row[qty]||'').trim(),price:(row[price]||'').trim(),line:header+i+1})).filter(row=>row.reference||row.quantity);
  if(!rows.length||rows.length>500)throw Error('La commande doit contenir de 1 à 500 lignes.');
- return {rows,shop:$('shop').value,vat:$('vat').value,price_source:$('source').value,price_mode:$('mode').value};
+ return {rows,shop:$('shop').value,price_source:$('source').value};
 }
 function display(result){
  $('rows').replaceChildren();let requested=0,accepted=0;
@@ -44,7 +44,7 @@ function display(result){
  const tr=document.createElement('tr');const values=[`${row.line} · ${row.reference}`,row.name||'—',row.requested,row.available??'—',row.accepted,row.unit_ht===undefined?'—':new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:6}).format(Number(row.unit_ht)),row.subtotal===undefined?'—':currency(row.subtotal),row.error||(!row.accepted?'Rupture':row.missing?'Quantité réduite':'Disponible')];
  values.forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===7)td.className=row.error?'bad':row.missing?'warn':'good';tr.append(td);});$('rows').append(tr);requested+=Number(row.requested)||0;accepted+=row.accepted;
  }
- $('requested').textContent=requested;$('accepted').textContent=accepted;$('missing').textContent=requested-accepted;$('total').textContent=currency(result.ttc);$('checked').textContent='Vérifié le '+new Date(result.checked_at).toLocaleString('fr-FR');$('results').hidden=false;
+ $('requested').textContent=requested;$('accepted').textContent=accepted;$('missing').textContent=requested-accepted;$('total').textContent=currency(result.ht);$('checked').textContent='Vérifié le '+new Date(result.checked_at).toLocaleString('fr-FR');$('results').hidden=false;
 }
 async function run(){
  $('check').disabled=true;

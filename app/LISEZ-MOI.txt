@@ -16,7 +16,7 @@ Activation
 - La clé reste uniquement en mémoire jusqu’à l’arrêt du serveur. Elle devra être saisie au prochain lancement. « Oublier la clé » coupe immédiatement cet accès.
 
 Utilisation
-1. Importez le fichier Excel ou CSV et vérifiez les colonnes. Le taux de TVA sert seulement au calcul indicatif local, pas à la création du panier.
+1. Importez le fichier Excel ou CSV et vérifiez les colonnes. Tous les montants sont HT. Aucun calcul de TVA ni conversion TTC n’est effectué. Les prix importés doivent être HT.
 2. Donnez une référence de commande client unique, par exemple AIR-VAPE-12-11-2026.
 3. Recherchez le client par son e-mail exact ou son ID PrestaShop. Sélectionnez les adresses existantes de livraison et de facturation.
 4. Cliquez « Vérifier et préparer le panier ». Les références, déclinaisons, disponibilités, minima de vente, client, adresses, devise EUR et langue sont contrôlés. Packs et personnalisations nécessitent une préparation manuelle.
@@ -25,7 +25,7 @@ Utilisation
 7. L’outil affiche le numéro du panier après relecture et comparaison des lignes enregistrées.
 8. Retrouvez le panier dans Commandes > Paniers et reprenez-le pour créer la commande. Vérifiez le transporteur, les frais de port, les remises, les prix, les taxes et les stocks avant de valider.
 
-Les paniers ne réservent pas le stock. Une vente simultanée peut changer les disponibilités après la dernière lecture. Les prix Excel et le taux de TVA saisi ne sont pas imposés à PrestaShop, qui applique ses propres règles à la finalisation.
+Les paniers ne réservent pas le stock. Une vente simultanée peut changer les disponibilités après la dernière lecture. Les prix Excel ne sont pas imposés à PrestaShop, qui applique ses propres règles à la finalisation.
 
 Le dossier paniers contient un registre local d’envois. Une référence de commande donnée ne peut être envoyée qu’une fois pour le même client et la même boutique. En cas de coupure réseau ou de réponse incertaine, aucun POST automatique supplémentaire n’est effectué. Vérifiez le back-office avant toute autre action. Si un numéro de panier est connu, le bouton « Revérifier le panier existant » fait uniquement une lecture. Ne supprimez pas le registre et ne changez pas la référence pour contourner un envoi incertain.
 

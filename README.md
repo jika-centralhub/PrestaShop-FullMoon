@@ -25,7 +25,7 @@ Sur Mac, le lanceur `Lancer FullMoon.command` est également disponible. Sur Win
 
 L’outil écoute seulement sur `127.0.0.1:8790` et ouvre une URL avec une session locale. Garder le processus ouvert. Le répertoire clients utilise le MCP en lecture seule et ne nécessite pas la clé dédiée aux paniers. L’adresse e-mail et les adresses sont affichées à la sélection, sans attribuer automatiquement les rôles livraison/facturation.
 
-La facturation HTML locale a été retirée de l’interface et du serveur. Les éventuelles archives locales sont conservées.
+La facturation HTML locale et le calcul de TVA ont été retirés de l’interface et du serveur. Tous les montants affichés sont HT et les prix importés doivent être HT. Les réglages fiscaux de PrestaShop ne sont pas modifiés. Les éventuelles archives locales sont conservées.
 
 ## État de la reprise
 

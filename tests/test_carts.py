@@ -7,7 +7,7 @@ import carts, app
 
 PROFILE=dict(id_customer=1,id_address_delivery=10,id_address_invoice=11,id_currency=1,id_lang=1,id_shop=1,id_shop_group=1,label='Client test',secure_key='a'*32)
 RESULT={'rows':[dict(product_id=5,attribute_id=0,accepted=3,error=''),dict(product_id=5,attribute_id=0,accepted=2,error='')]}
-PAYLOAD=dict(rows=[dict(reference='X',quantity=10)],shop='1',vat='20',price_source='catalog',price_mode='ht',cart=dict(customer='1',delivery='10',billing='11',order_ref='TEST-1'))
+PAYLOAD=dict(rows=[dict(reference='X',quantity=10)],shop='1',price_source='catalog',cart=dict(customer='1',delivery='10',billing='11',order_ref='TEST-1'))
 class Tests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)

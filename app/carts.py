@@ -169,7 +169,7 @@ class CartService:
             raise ValueError('Cette référence a déjà fait l’objet d’un envoi' + suffix + '. Consultez le registre des paniers avant toute nouvelle action.')
         ticket = secrets.token_urlsafe(32)
         # Store the source server-side. The commit cannot supply arbitrary cart rows.
-        clean = {k: payload[k] for k in ('rows', 'shop', 'vat', 'price_source', 'price_mode', 'cart')}
+        clean = {k: payload[k] for k in ('rows', 'shop', 'price_source', 'cart')}
         self.previews[ticket] = {'payload': json.loads(json.dumps(clean)), 'expected': expected, 'order_ref': ref, 'expires': time.time() + 600}
         return {'ticket': ticket, 'result': result, 'customer': profile['label'], 'quantity': sum(row['quantity'] for row in expected['rows']), 'order_ref': ref}
 
