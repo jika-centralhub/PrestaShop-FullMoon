@@ -4,11 +4,13 @@
 
 L’application cherche maintenant `server.py` à la racine de ce dépôt. Elle lance le MCP avec l’interpréteur Python courant, afin d’utiliser l’environnement virtuel du nouveau poste. Aucun chemin personnel du Mac d’origine n’est nécessaire. La configuration réelle et les données locales restent exclues.
 
-## Limite connue du module paniers
+## Module paniers : clé sécurisée du client (corrigé)
 
-`server.py` masque les champs sensibles, dont `secure_key`. Le code historique de `app/app.py` demande ce champ par `ps_get_record`, tandis que `app/carts.py` attend une valeur réelle de 32 caractères hexadécimaux. Cela produit le message « Identité sécurisée du client manquante dans PrestaShop » avant l’envoi.
+`server.py` masque les champs sensibles, dont `secure_key`, pour qu’ils n’atteignent jamais ChatGPT. Le code historique de `app/app.py` demandait pourtant ce champ par `ps_get_record`, via le MCP. Il recevait donc une valeur vide, et `app/carts.py`, qui attend 32 caractères hexadécimaux, bloquait l’envoi avec le message « Identité sécurisée du client manquante dans PrestaShop ».
 
-Cette incompatibilité n’a pas été corrigée lors de la migration. Aucune création réelle de panier n’a été validée par l’assistant. Les tests simulés du module ne couvrent pas cette incompatibilité entre composants. Le répertoire de consultation client reste indépendant des champs du module paniers.
+Correction : `customer_secure_key()` dans `app/app.py` lit désormais ce champ directement, hors MCP, avec la clé en lecture seule du fichier `.env` (GET `customers/{id}` par le client durci de `ps_client.py`). La valeur reste en mémoire dans le processus local et ne part que dans le POST du panier : elle n’est ni renvoyée à la page, ni journalisée, ni écrite dans le registre. Le masquage du MCP est inchangé. La lecture vérifie aussi que l’identifiant et la boutique du client correspondent.
+
+`tests/test_secure_key.py` couvre l’enchaînement entre composants : client masqué par le vrai `server.py`, lecture locale de la clé, création simulée d’un panier, absence de la clé dans la préparation et le registre. Une création réelle de panier sur la boutique reste à valider. Le répertoire de consultation client reste indépendant des champs du module paniers.
 
 La sélection des coordonnées n’envoie aucune écriture. Les adresses enregistrées ne permettent pas, à elles seules, de déterminer une adresse de facturation ou de livraison par défaut.
 

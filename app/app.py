@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local order checker, read-only MCP and isolated cart-only writer."""
-import asyncio, base64, csv, io, json, os, secrets, sys, threading, webbrowser, zipfile
+import asyncio, base64, csv, io, json, os, re, secrets, sys, threading, webbrowser, zipfile
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -9,13 +9,15 @@ from urllib.parse import urlsplit
 from contextlib import asynccontextmanager
 
 ROOT = Path(__file__).resolve().parent
+PROJECT = ROOT.parent
 sys.path.insert(0, str(ROOT / 'vendor'))
+sys.path.append(str(PROJECT))
 import openpyxl
 import xlrd
-from carts import CartService, positive, merged_rows
+from carts import CartService, positive, merged_rows, parse_xml
+from ps_client import PSClient
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-PROJECT = ROOT.parent
 TOKEN = secrets.token_urlsafe(32)
 PORT = 8790
 LOCK = threading.Lock()
@@ -122,9 +124,31 @@ async def cart_profile(session, payload, selected=False):
     language = await record('languages', customer.get('id_lang'))
     if str(language.get('active')) != '1':
         raise ValueError('Langue du client inactive.')
+    # The MCP redacts secure_key; read it locally, outside the MCP (see customer_secure_key).
+    secure_key = await asyncio.to_thread(customer_secure_key, customer_id, shop_id)
     return {'id_customer': customer_id, 'id_address_delivery': delivery, 'id_address_invoice': billing,
         'id_currency': positive(currencies[0]['id']), 'id_lang': positive(language['id']), 'id_shop': shop_id,
-        'id_shop_group': positive(shop['id_shop_group']), 'label': label, 'secure_key': customer.get('secure_key', '')}
+        'id_shop_group': positive(shop['id_shop_group']), 'label': label, 'secure_key': secure_key}
+
+
+def customer_secure_key(customer_id, shop_id):
+    """Read the customer's secure_key with the local read-only key from .env.
+
+    server.py redacts this field so that it never reaches ChatGPT through the MCP.
+    PrestaShop links a cart to its customer with it, so it is read here, directly
+    and outside the MCP. It stays in this process's memory and is only sent in the
+    cart POST: never returned to the page, logged or written to the ledger."""
+    try:
+        raw = PSClient.from_env(str(PROJECT / '.env'))._fetch_xml('customers', positive(customer_id))
+    except Exception:
+        raise ValueError('Lecture du client impossible pour préparer le panier. Vérifiez la clé en lecture seule du fichier .env et la connexion.') from None
+    customer = parse_xml(raw.encode('utf-8')).find('customer')
+    if customer is None or (customer.findtext('id') or '').strip() != str(customer_id) or (customer.findtext('id_shop') or '').strip() != str(shop_id):
+        raise ValueError('Client modifié ou associé à une autre boutique. Vérification manuelle requise.')
+    secure_key = (customer.findtext('secure_key') or '').strip()
+    if not re.fullmatch(r'[a-fA-F0-9]{32}', secure_key):
+        raise ValueError('Identité sécurisée du client manquante dans PrestaShop.')
+    return secure_key
 
 
 async def cart_details(payload):
