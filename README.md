@@ -33,7 +33,7 @@ La facturation HTML locale et le calcul de TVA ont été retirés de l’interfa
 - Import CSV/XLS/XLSX et contrôles de stock testés. Les doublons partagent les mêmes disponibilités.
 - Répertoire clients paginé, filtre et consultation des coordonnées testés sur le Mac d’origine.
 - Les prix catalogue et totaux locaux sont indicatifs, hors règles particulières, remises client et transport.
-- Les sources historiques du module paniers sont conservées **en l’état, non validées de bout en bout**. La création réelle rencontre l’erreur décrite dans `REPRISE.md`.
+- Module paniers : l’erreur « Identité sécurisée du client manquante » est corrigée (voir `REPRISE.md`). Tests hors ligne au vert ; une création réelle sur la boutique reste **à valider**.
 - Aucune clé, donnée client, facture, commande importée ou base locale n’est incluse.
 
 ## Organisation
