@@ -1,0 +1,58 @@
+FULLMOON — COMMANDES ET FACTURES
+
+Ouvrez « Lancer FullMoon.command ». Gardez sa fenêtre ouverte pendant l’utilisation.
+Le navigateur ouvre une session locale authentifiée. Le service écoute uniquement sur votre Mac.
+L’application utilise le serveur MCP déjà installé dans Téléchargements/prestashop-mcp-legacy-main.
+Le tunnel ChatGPT et sa clé OpenAI ne sont pas nécessaires à cet outil local.
+
+1. Importez une commande .xlsx, .xls ou .csv, sans prix si vous utilisez le catalogue.
+2. Choisissez la feuille, la ligne d’en-tête et les colonnes référence et quantité.
+3. Vérifiez la boutique (ID 1 par défaut) et renseignez la TVA applicable.
+4. Contrôlez les stocks. Les références sont comparées exactement, majuscules comprises.
+5. Complétez les informations du vendeur, du client, le numéro et les conditions de facture.
+6. Générez la facture. Le stock est relu, les quantités sont plafonnées de nouveau.
+7. Téléchargez le HTML, ou ouvrez-le puis utilisez Imprimer > Enregistrer au format PDF.
+
+Les prix sont ceux du catalogue HT, avec l’écart de prix de la déclinaison.
+Remises propres au client, promotions, transport et taxes spécifiques doivent faire l’objet d’une vérification distincte avant utilisation commerciale. L’outil prend en charge un taux de TVA par facture. Les mentions de votre entreprise et les conditions sont à renseigner.
+
+Les doublons d’une même référence partagent le stock disponible, attribué dans l’ordre des lignes Excel. Une quantité nulle en stock exclut la ligne de la facture. Les erreurs de référence, les produits inactifs, les parents à déclinaisons et les stocks partagés ou ambigus bloquent la génération.
+
+Stock constaté au moment du contrôle, sans réservation. Une vente simultanée sur la boutique peut changer les disponibilités. L’outil ne crée aucune commande et ne modifie aucun stock dans PrestaShop.
+
+Les factures HTML et le registre des numéros sont conservés localement dans « factures ». Ne supprimez pas le registre utilisé en production. Chaque numéro ne peut être émis qu’une fois dans ce registre. Après une interruption, vérifiez le dossier factures avant de réessayer.
+
+Limites d’import : 8 Mo, 500 lignes de commande, 1001 lignes et 50 colonnes par feuille. Les références avec zéros initiaux doivent être au format texte ou utiliser un format numérique composé de zéros. Les formules .xlsx ne sont pas exécutées. Les .xls fournissent les valeurs enregistrées par Excel : recalculez et enregistrez le classeur avant l’import.
+
+Pour arrêter, fermez la fenêtre du lanceur ou utilisez Ctrl+C.
+
+CSV : séparateurs point-virgule, virgule, tabulation et barre verticale détectés. Encodages UTF-8 (avec ou sans BOM), UTF-16 avec BOM et Windows-1252 pris en charge. Références et EAN conservés comme texte, avec leurs zéros initiaux.
+
+PANIERS PRESTASHOP
+
+La section « Préparer le panier dans PrestaShop » crée un panier natif pour un client existant. La commande et la facture officielle sont ensuite établies dans le back-office. Aucun ordre de paiement, commande, facture PrestaShop ni modification directe de stock n’est envoyé par cet outil.
+
+Activation
+- Créez une clé Webservice distincte. Autorisez uniquement Voir (GET) et Ajouter (POST) sur la ressource carts. Gardez la clé ChatGPT/MCP en lecture seule.
+- Collez cette nouvelle clé dans le champ masqué « Activer l’accès aux paniers ». Ne la partagez pas dans la conversation. L’outil vérifie les permissions et refuse les autres droits d’écriture.
+- La clé reste uniquement en mémoire jusqu’à l’arrêt du serveur. Elle devra être saisie au prochain lancement. « Oublier la clé » coupe immédiatement cet accès.
+
+Utilisation
+1. Importez le fichier Excel ou CSV et vérifiez les colonnes. Le taux de TVA sert seulement au calcul indicatif local, pas à la création du panier.
+2. Donnez une référence de commande client unique, par exemple AIR-VAPE-12-11-2026.
+3. Recherchez le client par son e-mail exact ou son ID PrestaShop. Sélectionnez les adresses existantes de livraison et de facturation.
+4. Cliquez « Vérifier et préparer le panier ». Les références, déclinaisons, disponibilités, minima de vente, client, adresses, devise EUR et langue sont contrôlés. Packs et personnalisations nécessitent une préparation manuelle.
+5. Vérifiez le récapitulatif. Cliquez « Créer ce panier dans PrestaShop ».
+6. Un nouveau contrôle précède l’envoi. Si les quantités retenues changent, l’envoi est bloqué et une nouvelle préparation est nécessaire.
+7. L’outil affiche le numéro du panier après relecture et comparaison des lignes enregistrées.
+8. Retrouvez le panier dans Commandes > Paniers et reprenez-le pour créer la commande. Vérifiez le transporteur, les frais de port, les remises, les prix, les taxes et les stocks avant de valider.
+
+Les paniers ne réservent pas le stock. Une vente simultanée peut changer les disponibilités après la dernière lecture. Les prix Excel et le taux de TVA saisi ne sont pas imposés à PrestaShop, qui applique ses propres règles à la finalisation.
+
+Le dossier paniers contient un registre local d’envois. Une référence de commande donnée ne peut être envoyée qu’une fois pour le même client et la même boutique. En cas de coupure réseau ou de réponse incertaine, aucun POST automatique supplémentaire n’est effectué. Vérifiez le back-office avant toute autre action. Si un numéro de panier est connu, le bouton « Revérifier le panier existant » fait uniquement une lecture. Ne supprimez pas le registre et ne changez pas la référence pour contourner un envoi incertain.
+
+La clé dédiée n’est jamais enregistrée dans le registre ni envoyée au MCP. Le serveur local écoute uniquement sur 127.0.0.1 et exige sa session locale. Les requêtes panier vont exclusivement en HTTPS à fullmoon-distribution.fr, sans redirection.
+
+RÉPERTOIRE DES CLIENTS
+La section « Répertoire des clients · Lecture seule » charge les clients actifs de la boutique sélectionnée via le MCP. Cliquez sur « Charger les clients depuis le MCP », puis filtrez par nom, entreprise ou identifiant. La liste est paginée côté API pour inclure tous les clients (jusqu’à 20 000). Seuls l’ID, le nom, le prénom et l’entreprise sont transmis à l’interface. Le répertoire est indépendant des paniers et ne modifie aucune donnée. Un changement de boutique efface la liste affichée et nécessite un nouveau chargement.
+Le menu de consultation des clients est maintenant affiché dans le bloc « Préparer le panier ». La sélection charge également l’e-mail et les adresses enregistrées via le MCP. Les adresses conservent leur alias PrestaShop ; aucun rôle livraison/facturation n’est déduit automatiquement. Cet affichage reste indépendant des champs utilisés par la création du panier et ne déclenche aucune écriture. Les coordonnées ne sont pas enregistrées sur disque par ce répertoire.

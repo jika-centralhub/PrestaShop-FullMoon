@@ -1,0 +1,27 @@
+# Secrets and private runtime data
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+session.url
+tunnel-profiles/*.yaml
+!tunnel-profiles/*.example.yaml
+# Private business records and imports
+factures/
+paniers/
+*.sqlite
+*.sqlite-*
+*.db
+*.csv
+*.xlsx
+*.xls
+*.log
+# Local environments and binaries
+.venv/
+venv/
+vendor/
+bin/
+__pycache__/
+*.pyc
+.DS_Store
