@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / 'vendor'))
 import openpyxl
 import xlrd
 from carts import CartService, positive, merged_rows
+from pdf_import import read_pdf
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 PROJECT = ROOT.parent
@@ -65,6 +66,23 @@ async def customer_directory(payload):
             raise ValueError('Répertoire trop volumineux. Aucun résultat partiel affiché.')
     return {'customers': sorted(customers.values(), key=lambda c: (c['company'].casefold(), c['lastname'].casefold(), c['firstname'].casefold(), int(c['id']))),
         'checked_at': datetime.now().astimezone().isoformat(timespec='seconds')}
+
+
+async def customer_match(payload):
+    email = str(payload.get('email', '')).strip().casefold()
+    shop = positive(payload.get('shop'))
+    if not email or '@' not in email:
+        return {'customers': [], 'status': 'missing'}
+    if len(email) > 254 or any(c in email for c in '[]|%<>\r\n'):
+        raise ValueError('Adresse e-mail invalide pour la recherche.')
+    fields = ['id', 'firstname', 'lastname', 'company', 'email', 'active', 'deleted', 'id_shop']
+    async with mcp_session() as session:
+        found = await query(session, 'customers', {'email': email, 'id_shop': str(shop), 'active': '1', 'deleted': '0'}, fields)
+    customers = [{k: c.get(k, '') for k in ('id', 'firstname', 'lastname', 'company', 'email')} for c in found
+        if str(c.get('email', '')).strip().casefold() == email
+        and str(c.get('active')) == '1' and str(c.get('deleted', '0')) == '0'
+        and str(c.get('id_shop')) == str(shop)]
+    return {'customers': customers, 'status': 'unique' if len(customers) == 1 else 'ambiguous' if customers else 'missing'}
 
 
 async def customer_contact(payload):
@@ -266,6 +284,8 @@ def read_order_file(payload):
         raise ValueError('Fichier limité à 8 Mo.')
     suffix = Path(payload['name']).suffix.lower()
     sheets = []
+    if suffix == '.pdf':
+        return read_pdf(data)
     if suffix == '.csv':
         sheets.append({'name':Path(payload['name']).stem,'rows':read_csv(data)})
     elif suffix == '.xlsx':
@@ -310,7 +330,7 @@ def read_order_file(payload):
                 rows.append(row)
             sheets.append({'name':sheet.name,'rows':rows})
     else:
-        raise ValueError('Choisissez un fichier .xlsx, .xls ou .csv.')
+        raise ValueError('Choisissez un fichier .xlsx, .xls, .csv ou .pdf.')
     return {'sheets':sheets}
 
 
@@ -449,9 +469,9 @@ class Handler(BaseHTTPRequestHandler):
             payload=json.loads(self.rfile.read(size))
             if self.path=='/import':
                 return self.respond(200,read_order_file(payload))
-            if self.path in ('/customers/list', '/customers/contact'):
+            if self.path in ('/customers/list', '/customers/contact', '/customers/match'):
                 with LOCK:
-                    action = customer_directory if self.path == '/customers/list' else customer_contact
+                    action = {'/customers/list': customer_directory, '/customers/contact': customer_contact, '/customers/match': customer_match}[self.path]
                     result = asyncio.run(asyncio.wait_for(action(payload), timeout=180))
                 return self.respond(200,result)
             if self.path.startswith('/cart/'):
