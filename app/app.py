@@ -481,7 +481,7 @@ class Handler(BaseHTTPRequestHandler):
         if not name:
             return self.respond(404,{'error':'Introuvable.'})
         mime={'html':'text/html','js':'text/javascript','css':'text/css'}[name.split('.')[-1]]
-        self.respond(200,(ROOT/name).read_text(),mime)
+        self.respond(200,(ROOT/name).read_text(encoding='utf-8'),mime)
 
     def do_POST(self):
         if self.headers.get('Host') != f'127.0.0.1:{PORT}' or self.headers.get('Origin') != f'http://127.0.0.1:{PORT}' or not secrets.compare_digest(self.headers.get('X-Session',''), TOKEN):
@@ -515,7 +515,7 @@ class Handler(BaseHTTPRequestHandler):
 if __name__=='__main__':
     server=ThreadingHTTPServer(('127.0.0.1',PORT),Handler)
     url=f'http://127.0.0.1:{PORT}/#'+TOKEN
-    print('FullMoon Commandes disponible sur ce Mac. Gardez cette fenêtre ouverte.',flush=True)
+    print('FullMoon Commandes disponible sur ce poste. Gardez cette fenêtre ouverte.',flush=True)
     # Fragment never reaches HTTP logs. It authenticates only this local process.
     if '--no-browser' not in sys.argv:
         webbrowser.open(url)

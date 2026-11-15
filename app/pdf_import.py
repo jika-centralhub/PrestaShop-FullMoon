@@ -112,4 +112,6 @@ if __name__ == '__main__':
         result = {'error':str(error)}
     except Exception:
         result = {'error':'PDF illisible, protégé ou endommagé. Utilisez un PDF texte non protégé ou le CSV.'}
-    sys.stdout.write(json.dumps(result,ensure_ascii=False))
+    # Explicit UTF-8 bytes: the console encoding is cp1252 on Windows, and read_pdf expects UTF-8.
+    sys.stdout.buffer.write(json.dumps(result,ensure_ascii=False).encode('utf-8'))
+    sys.stdout.buffer.flush()

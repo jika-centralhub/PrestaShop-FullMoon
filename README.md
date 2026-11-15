@@ -1,6 +1,6 @@
 # PrestaShop FullMoon
 
-Sources de l’installation locale FullMoon Distribution, transférées pour reprise sur un autre poste. Le serveur MCP expose des outils en lecture seule. L’interface locale importe Excel/CSV, consulte les stocks et les clients et affiche leurs coordonnées.
+Sources de l’installation locale FullMoon Distribution, transférées pour reprise sur un autre poste. Le serveur MCP expose des outils en lecture seule. L’interface locale importe Excel/CSV/PDF (voir `IMPORT-PDF.md`), consulte les stocks et les clients et affiche leurs coordonnées.
 
 ## Installation sur un autre poste
 
@@ -21,7 +21,9 @@ Renseigner `PS_API_KEY` dans `.env`, localement, avec la clé PrestaShop en lect
 .venv/bin/python -B app/app.py
 ```
 
-Sur Mac, le lanceur `Lancer FullMoon.command` est également disponible. Sur Windows, utiliser `py -3.13 -m venv .venv`, puis `.venv\Scripts\python.exe` à la place de `.venv/bin/python` ; créer le fichier `.env` manuellement depuis l’exemple. Windows n’a pas été testé.
+Sur Mac, le lanceur `Lancer FullMoon.command` est également disponible.
+
+Sur Windows : `py -3.13 -m venv .venv`, puis `.venv\Scripts\python.exe -m pip install -r requirements-lock.txt`, et copier `.env.example` en `.env`. Lancer ensuite `Lancer FullMoon.bat` par double-clic. Testé sous Windows 11 : démarrage, page, import CSV/XLSX/PDF et tests hors ligne.
 
 L’outil écoute seulement sur `127.0.0.1:8790` et ouvre une URL avec une session locale. Garder le processus ouvert. Le répertoire clients utilise le MCP en lecture seule et ne nécessite pas la clé dédiée aux paniers. L’adresse e-mail et les adresses sont affichées à la sélection, sans attribuer automatiquement les rôles livraison/facturation.
 

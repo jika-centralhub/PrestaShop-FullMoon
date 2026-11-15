@@ -10,6 +10,6 @@ Installer les dépendances mises à jour avec `python -m pip install -r requirem
 
 ## Reprise du travail
 
-Base : commit f83c0f239653f61eca8c012c7a93d502aba93845 de main. Les changements locaux PDF/client sont conservés ensemble sur cette branche. La branche distante de correction des paniers n'a pas été fusionnée ni validée ici. Attention aux modifications concurrentes dans app/app.py : préserver l'import pdf_import, customer_match, la prise en charge PDF dans read_order_file et la route /customers/match.
+Base : commit f83c0f239653f61eca8c012c7a93d502aba93845 de main. Les changements locaux PDF/client sont conservés ensemble sur cette branche. Fusionné dans main avec la correction des paniers (clé sécurisée lue hors MCP). La lecture du PDF renvoie désormais son résultat en UTF-8, ce qui la fait fonctionner aussi sous Windows.
 
 Les tests automatisés couvrent notamment l'absence de client, les doublons, les filtres de boutique/statut, la correspondance exacte et l'exclusion des secrets. Le PDF utilisateur a été vérifié localement ; son e-mail acheteur ne correspondait à aucun client actif de la boutique testée. Aucun document utilisateur, identifiant secret ou donnée client réelle n'est livré dans cette branche.
