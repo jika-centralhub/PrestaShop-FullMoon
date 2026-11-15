@@ -1,32 +1,10 @@
-FULLMOON — COMMANDES ET FACTURES
+FULLMOON — COMMANDES ET STOCKS
 
-Ouvrez « Lancer FullMoon.command ». Gardez sa fenêtre ouverte pendant l’utilisation.
-Le navigateur ouvre une session locale authentifiée. Le service écoute uniquement sur votre Mac.
-L’application utilise le serveur MCP déjà installé dans Téléchargements/prestashop-mcp-legacy-main.
-Le tunnel ChatGPT et sa clé OpenAI ne sont pas nécessaires à cet outil local.
+Ouvrez le lanceur et gardez sa fenêtre ouverte. Le serveur écoute uniquement sur ce Mac.
+Importez le fichier Excel ou CSV, vérifiez les colonnes puis lancez le contrôle des disponibilités via le MCP.
+Les prix et totaux sont indicatifs, hors règles particulières et transport. Les stocks ne sont pas réservés.
 
-1. Importez une commande .xlsx, .xls ou .csv, sans prix si vous utilisez le catalogue.
-2. Choisissez la feuille, la ligne d’en-tête et les colonnes référence et quantité.
-3. Vérifiez la boutique (ID 1 par défaut) et renseignez la TVA applicable.
-4. Contrôlez les stocks. Les références sont comparées exactement, majuscules comprises.
-5. Complétez les informations du vendeur, du client, le numéro et les conditions de facture.
-6. Générez la facture. Le stock est relu, les quantités sont plafonnées de nouveau.
-7. Téléchargez le HTML, ou ouvrez-le puis utilisez Imprimer > Enregistrer au format PDF.
-
-Les prix sont ceux du catalogue HT, avec l’écart de prix de la déclinaison.
-Remises propres au client, promotions, transport et taxes spécifiques doivent faire l’objet d’une vérification distincte avant utilisation commerciale. L’outil prend en charge un taux de TVA par facture. Les mentions de votre entreprise et les conditions sont à renseigner.
-
-Les doublons d’une même référence partagent le stock disponible, attribué dans l’ordre des lignes Excel. Une quantité nulle en stock exclut la ligne de la facture. Les erreurs de référence, les produits inactifs, les parents à déclinaisons et les stocks partagés ou ambigus bloquent la génération.
-
-Stock constaté au moment du contrôle, sans réservation. Une vente simultanée sur la boutique peut changer les disponibilités. L’outil ne crée aucune commande et ne modifie aucun stock dans PrestaShop.
-
-Les factures HTML et le registre des numéros sont conservés localement dans « factures ». Ne supprimez pas le registre utilisé en production. Chaque numéro ne peut être émis qu’une fois dans ce registre. Après une interruption, vérifiez le dossier factures avant de réessayer.
-
-Limites d’import : 8 Mo, 500 lignes de commande, 1001 lignes et 50 colonnes par feuille. Les références avec zéros initiaux doivent être au format texte ou utiliser un format numérique composé de zéros. Les formules .xlsx ne sont pas exécutées. Les .xls fournissent les valeurs enregistrées par Excel : recalculez et enregistrez le classeur avant l’import.
-
-Pour arrêter, fermez la fenêtre du lanceur ou utilisez Ctrl+C.
-
-CSV : séparateurs point-virgule, virgule, tabulation et barre verticale détectés. Encodages UTF-8 (avec ou sans BOM), UTF-16 avec BOM et Windows-1252 pris en charge. Références et EAN conservés comme texte, avec leurs zéros initiaux.
+La facturation HTML locale a été retirée : aucun numéro de facture, document HTML ou PDF n’est émis par cet outil. Les éventuelles archives et le registre du dossier factures existant sont conservés ; leur suppression ne fait pas partie de cette modification.
 
 PANIERS PRESTASHOP
 

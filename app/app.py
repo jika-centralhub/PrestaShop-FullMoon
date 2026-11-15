@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Local order checker, read-only MCP and isolated cart-only writer."""
-import asyncio, base64, csv, hashlib, html, io, json, os, secrets, sqlite3, sys, threading, webbrowser, zipfile
+import asyncio, base64, csv, io, json, os, secrets, sys, threading, webbrowser, zipfile
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -426,24 +426,6 @@ async def check(payload):
     return allocate(rows,catalog,vat,payload['price_mode'],payload['price_source'])
 
 
-def invoice(payload, result):
-    meta = payload.get('invoice',{})
-    for key,label in [('number','Numéro de facture'),('seller','Identité du vendeur'),('buyer','Identité du client'),('terms','Conditions de paiement'),('date','Date de facture')]:
-        if not str(meta.get(key,'')).strip():
-            raise ValueError(label+' requis.')
-    datetime.strptime(meta['date'],'%Y-%m-%d')
-    if any(r['error'] for r in result['rows']):
-        raise ValueError('Corrigez toutes les lignes en erreur avant de facturer.')
-    if not any(r['accepted'] for r in result['rows']):
-        raise ValueError('Aucune quantité disponible à facturer.')
-    esc = lambda value: html.escape(str(value))
-    money = lambda value: f'{Decimal(value):.2f}'.replace('.',',')
-    body = ''.join(f'<tr><td>{esc(r["reference"])}</td><td>{esc(r["name"])}</td><td>{r["accepted"]}</td><td>{esc(r["unit_ht"].replace('.',','))}</td><td>{money(r["subtotal"])}</td></tr>' for r in result['rows'] if r['accepted'])
-    omitted = ', '.join(f'{r["reference"]} : {r["missing"]}' for r in result['rows'] if r['missing'])
-    document = f'''<!doctype html><html lang="fr"><meta charset="utf-8"><title>Facture {esc(meta['number'])}</title><style>body{{font:14px Arial;max-width:950px;margin:45px auto;color:#17252b}}h1{{font-size:32px}}.parties{{display:flex;gap:80px;margin:30px 0}}pre{{font:inherit;white-space:pre-wrap;flex:1}}table{{width:100%;border-collapse:collapse}}th,td{{padding:12px;border-bottom:1px solid #ccd5d8;text-align:left}}.totals{{text-align:right;line-height:2}}@media print{{body{{margin:10mm}}thead{{display:table-header-group}}tr{{break-inside:avoid}}}}</style><h1>Facture {esc(meta['number'])}</h1><p>Date {esc(meta['date'])} · Devise EUR</p><div class="parties"><pre><b>Vendeur</b>\n{esc(meta['seller'])}</pre><pre><b>Client</b>\n{esc(meta['buyer'])}</pre></div><table><thead><tr><th>Référence</th><th>Produit</th><th>Qté facturée</th><th>PU HT €</th><th>Total HT €</th></tr></thead><tbody>{body}</tbody></table><p class="totals">Total HT {money(result['ht'])} €<br>TVA {esc(payload['vat'])} % · {money(result['tax'])} €<br><b>Total TTC {money(result['ttc'])} €</b></p><pre>{esc(meta['terms'])}</pre><p>{esc(meta.get('notes',''))}</p><p>Quantités non retenues · {esc(omitted or 'Aucune')}</p><small>Stocks consultés le {esc(result['checked_at'])}. Validation locale des quantités. Stock non réservé dans PrestaShop.</small></html>'''
-    return document
-
-
 class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):
         pass
@@ -454,7 +436,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type',kind+'; charset=utf-8')
         self.send_header('Cache-Control','no-store')
         self.send_header('X-Content-Type-Options','nosniff')
-        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(raw)
 
@@ -487,23 +469,10 @@ class Handler(BaseHTTPRequestHandler):
                 with LOCK:
                     result = cart_route(self.path, payload)
                 return self.respond(200, result)
-            if self.path not in ('/check','/invoice'):
+            if self.path != '/check':
                 return self.respond(404,{'error':'Introuvable.'})
             with LOCK:
                 result=asyncio.run(asyncio.wait_for(check(payload),timeout=180))
-                if self.path=='/invoice':
-                    document=invoice(payload,result)
-                    folder=ROOT/'factures';folder.mkdir(mode=0o700,exist_ok=True)
-                    # Unique user-supplied invoice numbers prevent accidental overwrite.
-                    with sqlite3.connect(folder/'registre.sqlite') as db:
-                        db.execute('CREATE TABLE IF NOT EXISTS invoices (number TEXT PRIMARY KEY, document TEXT NOT NULL)')
-                        try:
-                            db.execute('INSERT INTO invoices VALUES (?,?)',(payload['invoice']['number'].strip(),document))
-                        except sqlite3.IntegrityError:
-                            raise ValueError('Ce numéro de facture existe déjà dans le registre local.') from None
-                    key=hashlib.sha256(payload['invoice']['number'].strip().encode()).hexdigest()[:16]
-                    (folder/f'facture-{key}.html').write_text(document)
-                    result['document']=document
             self.respond(200,result)
         except ValueError as error:
             self.respond(400,{'error':str(error)})

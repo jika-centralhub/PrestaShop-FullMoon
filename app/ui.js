@@ -3,11 +3,10 @@ const $=id=>document.getElementById(id);
 let token=location.hash.slice(1)||sessionStorage.getItem('fullmoon-session');
 if(token)sessionStorage.setItem('fullmoon-session',token);
 history.replaceState(null,'',location.pathname);
-let sheets=[], lastResult=null, documentUrl=null;
+let sheets=[];
 const currency=value=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(Number(value));
-const today=new Date();$('date').value=[today.getFullYear(),String(today.getMonth()+1).padStart(2,'0'),String(today.getDate()).padStart(2,'0')].join('-');
 function message(text,error=false){$('message').textContent=text;$('message').className=error?'bad':'';}
-function invalidate(){lastResult=null;$('results').hidden=true;$('billing').hidden=true;$('download').hidden=true;resetCart();}
+function invalidate(){$('results').hidden=true;resetCart();}
 async function api(path,payload){
  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Session':token||''},body:JSON.stringify(payload)});
  const data=await response.json();if(!response.ok)throw Error(data.error||'Erreur de connexion');return data;
@@ -37,28 +36,27 @@ function payload(){
  const header=Number($('header').value);if(!Number.isInteger(header)||header<1)throw Error('Ligne d’en-tête invalide.');
  const rows=sheet.rows.slice(header).map((row,i)=>({reference:(row[ref]||'').trim(),quantity:(row[qty]||'').trim(),price:(row[price]||'').trim(),line:header+i+1})).filter(row=>row.reference||row.quantity);
  if(!rows.length||rows.length>500)throw Error('La commande doit contenir de 1 à 500 lignes.');
- return {rows,shop:$('shop').value,vat:$('vat').value,price_source:$('source').value,price_mode:$('mode').value,invoice:Object.fromEntries(['number','date','seller','buyer','terms','notes'].map(id=>[id,$(id).value]))};
+ return {rows,shop:$('shop').value,vat:$('vat').value,price_source:$('source').value,price_mode:$('mode').value};
 }
 function display(result){
- lastResult=result;$('rows').replaceChildren();let requested=0,accepted=0;
+ $('rows').replaceChildren();let requested=0,accepted=0;
  for(const row of result.rows){
  const tr=document.createElement('tr');const values=[`${row.line} · ${row.reference}`,row.name||'—',row.requested,row.available??'—',row.accepted,row.unit_ht===undefined?'—':new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:6}).format(Number(row.unit_ht)),row.subtotal===undefined?'—':currency(row.subtotal),row.error||(!row.accepted?'Rupture':row.missing?'Quantité réduite':'Disponible')];
  values.forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===7)td.className=row.error?'bad':row.missing?'warn':'good';tr.append(td);});$('rows').append(tr);requested+=Number(row.requested)||0;accepted+=row.accepted;
  }
- $('requested').textContent=requested;$('accepted').textContent=accepted;$('missing').textContent=requested-accepted;$('total').textContent=currency(result.ttc);$('checked').textContent='Vérifié le '+new Date(result.checked_at).toLocaleString('fr-FR');$('results').hidden=false;$('billing').hidden=false;
- $('generate').disabled=result.rows.some(row=>row.error)||!accepted;
+ $('requested').textContent=requested;$('accepted').textContent=accepted;$('missing').textContent=requested-accepted;$('total').textContent=currency(result.ttc);$('checked').textContent='Vérifié le '+new Date(result.checked_at).toLocaleString('fr-FR');$('results').hidden=false;
 }
-async function run(makeInvoice){
- $('check').disabled=true;$('generate').disabled=true;$('download').hidden=true;
+async function run(){
+ $('check').disabled=true;
  try{
- const input=payload();message(makeInvoice?'Nouvelle lecture du stock et génération…':'Contrôle des références, prix et stocks via MCP…');
- const result=await api(makeInvoice?'/invoice':'/check',input);display(result);
- if(makeInvoice){if(documentUrl)URL.revokeObjectURL(documentUrl);documentUrl=URL.createObjectURL(new Blob([result.document],{type:'text/html'}));$('save').href=documentUrl;$('save').download='Facture-'+input.invoice.number.replace(/[^a-zA-Z0-9_-]/g,'_')+'.html';$('preview').srcdoc=result.document;$('download').hidden=false;message('Facture générée et archivée. Les quantités affichées correspondent au dernier contrôle.');}
- else message(result.rows.some(row=>row.error)?'Des lignes nécessitent une correction. La génération est bloquée.':'Contrôle terminé. Complétez les informations de facturation.',result.rows.some(row=>row.error));
- }catch(error){message(error.message,true);if(makeInvoice)invalidate();}
- finally{$('check').disabled=false;$('generate').disabled=!lastResult||lastResult.rows.some(row=>row.error)||!lastResult.rows.some(row=>row.accepted);}
+  const input=payload();message('Contrôle des références, prix et stocks via MCP…');
+  const result=await api('/check',input);display(result);
+  const errors=result.rows.some(row=>row.error);
+  message(errors?'Des lignes nécessitent une correction.':'Contrôle terminé. Les disponibilités sont affichées.',errors);
+ }catch(error){message(error.message,true);}
+ finally{$('check').disabled=false;}
 }
-$('check').addEventListener('click',()=>run(false));$('generate').addEventListener('click',()=>run(true));$('print').addEventListener('click',()=>{if(documentUrl){$('preview').contentWindow.focus();$('preview').contentWindow.print();}});
+$('check').addEventListener('click',run);
 if(!token)message('Ouvrez l’outil avec « Lancer FullMoon.command » pour créer une session locale sécurisée.',true);
 
 let cartTicket=null;

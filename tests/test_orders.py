@@ -26,10 +26,4 @@ class Checks(unittest.TestCase):
   self.catalog['A']['available']=0
   r=app.allocate([{'reference':'A','quantity':2}],self.catalog,Decimal(20),'ht','catalog')
   self.assertEqual(r['rows'][0]['accepted'],0)
- def test_invoice_escape(self):
-  p={'invoice':{'number':'TEST','seller':'<script>','buyer':'Client','terms':'Comptant','date':'2026-11-15'},'vat':'20'}
-  r=app.allocate([{'reference':'A','quantity':9}],self.catalog,Decimal(20),'ht','catalog')
-  doc=app.invoice(p,r);self.assertIn('&lt;script&gt;',doc);self.assertNotIn('<script>',doc);self.assertIn('<td>5</td>',doc)
- def test_missing_invoice(self):
-  with self.assertRaises(ValueError):app.invoice({}, {'rows':[]})
 if __name__ == '__main__': unittest.main()
