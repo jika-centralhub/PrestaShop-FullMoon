@@ -16,15 +16,43 @@ def normalized(text):
     return ''.join(c for c in unicodedata.normalize('NFKD', text.lower()) if not unicodedata.combining(c)).replace('\n', ' ')
 
 
+HEADER_STOPWORDS = set('''
+acheteur acheteuse fournisseur vendeur adresse adresses facturation livraison commande bon date email mail courriel
+telephone tel fax portable mobile contact reference ref page siret tva intracom numero client societe nom
+rue avenue boulevard chemin route place allee impasse quai cours square france cedex zone parc batiment lot
+les des une pour par sur avec dans aux est
+janvier fevrier mars avril mai juin juillet aout septembre octobre novembre decembre
+lundi mardi mercredi jeudi vendredi samedi dimanche fullmoon distribution
+'''.split())
+
+
+def header_terms(header):
+    """Significant words of the order header (buyer, company, addresses), to suggest likely customers.
+
+    The title line, the supplier name, e-mail addresses, numbers and common words are left out.
+    These words only rank suggestions in the local page; they never select a customer on their own.
+    """
+    terms = []
+    for line in header.splitlines():
+        text = normalized(line).strip()
+        if text.startswith('commande'):
+            continue
+        text = re.sub(r'fournisseur\s*:.*?(?=adresse|$)', ' ', text)
+        text = re.sub(r'\S+@\S+', ' ', text)
+        terms += [w for w in re.findall(r'[a-z]{3,}', text) if w not in HEADER_STOPWORDS]
+    return list(dict.fromkeys(terms))[:40]
+
+
 def customer_hint(header):
     # Only an explicitly labelled buyer-contact email; never the supplier/title.
+    terms = header_terms(header)
     if not re.search(r'acheteur\s*:', normalized(header)):
-        return {'email': None, 'reason': 'Acheteur non identifié dans l’en-tête.'}
-    matches = re.findall(r'(?im)\be-?mail\s*:\s*([^\s<>]+@[^\s<>]+\.[a-z]{2,})', header)
+        return {'email': None, 'reason': 'Acheteur non identifié dans l’en-tête.', 'terms': terms}
+    matches = re.findall(r'(?im)\b(?:e-?mail|courriel|mail)\s*:\s*([^\s<>]+@[^\s<>]+\.[a-z]{2,})', header)
     emails = list(dict.fromkeys(x.rstrip('.,;').lower() for x in matches))
     if len(emails) != 1:
-        return {'email': None, 'reason': 'E-mail acheteur absent ou ambigu. Sélectionnez le client manuellement.'}
-    return {'email': emails[0], 'reason': 'E-mail du contact acheteur extrait de l’en-tête.'}
+        return {'email': None, 'reason': 'E-mail acheteur absent ou ambigu.', 'terms': terms}
+    return {'email': emails[0], 'reason': 'E-mail du contact acheteur extrait de l’en-tête.', 'terms': terms}
 
 
 def parse(data):

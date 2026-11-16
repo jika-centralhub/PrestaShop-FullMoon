@@ -216,7 +216,9 @@ function updateClientStatus(){
  if(!clients.length)return;
  $('clientstatus').textContent=`${clients.length} clients actifs · boutique ${clientsShop} · actualisé à ${new Date(clientsCheckedAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}`;
 }
-async function loadClients(){
+let clientsReady=Promise.resolve();
+function loadClients(){clientsReady=fetchClients();return clientsReady;}
+async function fetchClients(){
  if(!token)return;
  const version=++clientsVersion,shop=$('shop').value;
  $('clientrefresh').disabled=true;$('clientstatus').textContent='Chargement du répertoire clients via le MCP… Vous pouvez déjà taper.';
@@ -295,32 +297,62 @@ $('clientsearch').addEventListener('keydown',event=>{
  }
  else if(event.key==='Escape'){if(!$('clientresults').hidden)hideResults();else{$('clientsearch').value='';renderResults();}}
 });
-$('clientrefresh').addEventListener('click',loadClients);
+$('clientrefresh').addEventListener('click',()=>loadClients());
 $('cardclose').addEventListener('click',()=>{closeCard();$('clientsearch').focus();});
 $('cardemailcopy').addEventListener('click',()=>copyText($('cardemail').textContent,$('cardemailcopy')));
 $('shop').addEventListener('input',()=>{
- clientsVersion++;clients=[];closeCard();hideResults();$('clientrecent').hidden=true;
+ clientsVersion++;clients=[];closeCard();hideResults();hideSuggestions();$('clientrecent').hidden=true;
  $('clientstatus').textContent='Boutique modifiée : rechargement du répertoire…';
  clearTimeout(shopTimer);shopTimer=setTimeout(()=>{if(Number($('shop').value)>0)loadClients();},600);
 });
 
+// Suggestions d'après l'en-tête du PDF : chaque mot commun compte d'autant plus qu'il est rare dans le répertoire.
+function suggestClients(terms){
+ const wanted=new Set((terms||[]).map(fold));if(!wanted.size||!clients.length)return [];
+ const index=clients.map(c=>({c,words:new Set(fold([c.company,c.firstname,c.lastname].join(' ')).match(/[a-z]{3,}/g)||[])}));
+ const frequency=new Map();for(const {words} of index)for(const w of words)frequency.set(w,(frequency.get(w)||0)+1);
+ return index.map(({c,words})=>{let score=0,common=0;for(const w of words)if(wanted.has(w)){score+=1/frequency.get(w);common++;}return {client:c,score,common};})
+  .filter(x=>x.score>=0.5).sort((a,b)=>b.score-a.score||b.common-a.common).slice(0,3);
+}
+function hideSuggestions(){$('clientsuggest').hidden=true;$('suggestlist').replaceChildren();}
+function showSuggestions(found){
+ const list=$('suggestlist');list.replaceChildren();
+ found.forEach(({client,common},i)=>{
+  const li=document.createElement('li');if(i===0&&(found.length===1||found[0].score>=2*found[1].score))li.className='best';
+  const button=document.createElement('button');button.type='button';button.className='resultbtn';
+  const email=document.createElement('strong'),detail=document.createElement('span');
+  email.textContent=client.email||'E-mail non renseigné';
+  detail.textContent=`${clientLabel(client)} · n° ${client.id} · ${common} mot(s) en commun avec le PDF`+(li.className?' · meilleure correspondance':'');
+  button.append(email,detail);button.addEventListener('click',()=>openClient(client.id));li.append(button);list.append(li);
+ });
+ $('clientsuggest').hidden=!found.length;
+}
+
 // Commande PDF : l'e-mail « Acheteur » ouvre directement la fiche si un seul client actif correspond exactement.
+// Sinon, la page propose les clients les plus proches de l'en-tête (nom, entreprise, adresses), sans en choisir un.
 async function detectPdfCustomer(hint,version){
- $('pdfclientstatus').textContent='Recherche du client acheteur…';
- if(!hint||!hint.email){closeCard();unlinkCart();$('pdfclientstatus').textContent=(hint?.reason||'E-mail acheteur absent du PDF.')+' Recherchez le client dans « Trouver un client », en haut de la page.';return;}
+ $('pdfclientstatus').textContent='Recherche du client acheteur…';hideSuggestions();
+ let status='missing';
  try{
-  const result=await api('/customers/match',{shop:$('shop').value,email:hint.email});
-  if(version!==importVersion)return;
-  if(result.status==='unique'){
-   $('clientsearch').value=hint.email;await openClient(result.customers[0].id);
-   $('pdfclientstatus').textContent='Client identifié par l’e-mail acheteur exact '+hint.email+'. Sa fiche est ouverte en haut de la page : vérifiez son identité et ses adresses.';
-   return;
+  if(hint?.email){
+   const result=await api('/customers/match',{shop:$('shop').value,email:hint.email});
+   if(version!==importVersion)return;
+   if(result.status==='unique'){
+    $('clientsearch').value=hint.email;await openClient(result.customers[0].id);
+    $('pdfclientstatus').textContent='Client identifié par l’e-mail acheteur exact '+hint.email+'. Sa fiche est ouverte en haut de la page : vérifiez son identité et ses adresses.';
+    return;
+   }
+   status=result.status;
   }
-  const domain=hint.email.split('@')[1]||'';
-  $('clientsearch').value=domain&&!WEBMAIL.test(domain)?'@'+domain:hint.email;closeCard();unlinkCart();
-  $('pdfclientstatus').textContent=(result.status==='ambiguous'?'Plusieurs clients actifs ont':'Aucun client actif n’a')+' l’e-mail acheteur '+hint.email+'. La recherche en haut de la page est pré-remplie'+(domain&&!WEBMAIL.test(domain)?' avec son domaine':'')+' : choisissez le client.';
-  $('clientsection').scrollIntoView({behavior:'smooth',block:'start'});$('clientsearch').focus();
- }catch(error){if(version===importVersion)$('pdfclientstatus').textContent='Identification automatique indisponible. Recherchez le client en haut de la page. '+error.message;}
+ }catch(error){if(version!==importVersion)return;status='error';}
+ closeCard();unlinkCart();
+ await clientsReady;if(version!==importVersion)return;
+ const found=suggestClients(hint?.terms);showSuggestions(found);
+ const domain=hint?.email?.split('@')[1]||'',useDomain=domain&&!WEBMAIL.test(domain);
+ $('clientsearch').value=found.length?'':hint?.email?(useDomain?'@'+domain:hint.email):'';
+ const cause=status==='error'?'Recherche par e-mail indisponible.':!hint?.email?'Aucun e-mail acheteur lisible dans le PDF.':status==='ambiguous'?`Plusieurs clients actifs ont l’e-mail ${hint.email}.`:`Aucun client actif n’a l’e-mail ${hint.email} dans PrestaShop.`;
+ $('pdfclientstatus').textContent=cause+(found.length?` ${found.length} client(s) possible(s) proposé(s) en haut de la page d’après l’en-tête du PDF : vérifiez puis cliquez pour ouvrir la fiche.`:' Recherchez le client en haut de la page'+($('clientsearch').value?' (recherche pré-remplie).':'.'));
+ $('clientsection').scrollIntoView({behavior:'smooth',block:'start'});if(!found.length)$('clientsearch').focus();
 }
 
 if(token)loadClients();else $('clientstatus').textContent='Session locale absente : le répertoire clients ne peut pas être chargé.';
