@@ -24,6 +24,8 @@ PORT = 8790
 LOCK = threading.Lock()
 CENT = Decimal('0.01')
 CARTS = CartService(ROOT)
+ASSETS = {'/assets/logo-fullmoon.png': 'image/png', '/assets/fullmoon-couleur.png': 'image/png',
+          '/assets/favicon.png': 'image/png', '/assets/montserrat.woff2': 'font/woff2'}
 
 
 @asynccontextmanager
@@ -464,9 +466,13 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def respond(self,status,data,kind='application/json'):
-        raw = json.dumps(data,ensure_ascii=False).encode() if kind=='application/json' else data.encode()
+        if isinstance(data, bytes):
+            raw, content_type = data, kind
+        else:
+            raw = json.dumps(data,ensure_ascii=False).encode() if kind=='application/json' else data.encode()
+            content_type = kind+'; charset=utf-8'
         self.send_response(status)
-        self.send_header('Content-Type',kind+'; charset=utf-8')
+        self.send_header('Content-Type',content_type)
         self.send_header('Cache-Control','no-store')
         self.send_header('X-Content-Type-Options','nosniff')
         self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
@@ -476,8 +482,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.headers.get('Host') != f'127.0.0.1:{PORT}':
             return self.respond(403,{'error':'Hôte refusé.'})
+        path=urlsplit(self.path).path
+        if path in ASSETS:
+            # Fixed allow-list: logos, icon and bundled font only, never a path built from the URL.
+            return self.respond(200,(ROOT/'assets'/path.removeprefix('/assets/')).read_bytes(),ASSETS[path])
         files={'/':'index.html','/ui.js':'ui.js','/style.css':'style.css'}
-        name=files.get(urlsplit(self.path).path)
+        name=files.get(path)
         if not name:
             return self.respond(404,{'error':'Introuvable.'})
         mime={'html':'text/html','js':'text/javascript','css':'text/css'}[name.split('.')[-1]]

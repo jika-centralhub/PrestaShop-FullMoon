@@ -42,6 +42,7 @@ La facturation HTML locale et le calcul de TVA ont été retirés de l’interfa
 
 - `server.py`, `ps_client.py` — serveur MCP et client PrestaShop durci.
 - `app/` — serveur HTTP local, interface et sources historiques du module paniers.
+- `app/assets/` — logos FullMoon (repris de fullmoon-shop.com), icône et police Montserrat embarquée (licence OFL : `app/assets/OFL-Montserrat.txt`). L’interface fonctionne hors ligne, à l’identique sur Mac et Windows.
 - `tests/` — tests hors ligne avec données synthétiques.
 - `start_tunnel.py`, `tunnel-profiles/fullmoon.example.yaml` — lanceur et modèle du tunnel privé.
 - `REPRISE.md` — état technique, limites et données à conserver séparément.

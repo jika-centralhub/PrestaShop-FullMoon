@@ -5,8 +5,9 @@ if(token)sessionStorage.setItem('fullmoon-session',token);
 history.replaceState(null,'',location.pathname);
 let sheets=[],pdfReviewRequired=false,importVersion=0;
 const currency=value=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(Number(value));
-function message(text,error=false){$('message').textContent=text;$('message').className=error?'bad':'';}
-function invalidate(){$('results').hidden=true;resetCart();}
+function message(text,error=false){$('message').textContent=text;$('message').className='notice'+(error?' bad':'');}
+function setStep(step){[1,2,3].forEach(n=>{const li=$('step'+n);li.classList.toggle('active',n===step);li.classList.toggle('done',n<step);});}
+function invalidate(){$('results').hidden=true;resetCart();setStep(sheets.length?2:1);}
 async function api(path,payload){
  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Session':token||''},body:JSON.stringify(payload)});
  const data=await response.json();if(!response.ok)throw Error(data.error||'Erreur de connexion');return data;
@@ -27,6 +28,11 @@ $('file').addEventListener('change',async()=>{
  if(data.pdf_review_required){pdfReviewRequired=true;$('pdfreview').hidden=false;$('pdfnotice').textContent=data.notice;$('check').disabled=true;for(const row of sheets[0].rows.slice(1)){const tr=document.createElement('tr');for(const value of row){const td=document.createElement('td');td.textContent=value;tr.append(td);}$('pdfrows').append(tr);}await detectPdfCustomer(data.customer_hint,version);}
  }catch(error){if(version===importVersion)message(error.message,true);}
 });
+// Glisser-déposer : le fichier déposé passe par le même champ que le sélecteur.
+const dropzone=$('dropzone');
+for(const type of ['dragenter','dragover'])dropzone.addEventListener(type,event=>{event.preventDefault();dropzone.classList.add('dragging');});
+for(const type of ['dragleave','dragend'])dropzone.addEventListener(type,()=>dropzone.classList.remove('dragging'));
+dropzone.addEventListener('drop',event=>{event.preventDefault();dropzone.classList.remove('dragging');if(!event.dataTransfer.files.length)return;$('file').files=event.dataTransfer.files;$('file').dispatchEvent(new Event('change'));});
 $('sheet').addEventListener('change',mapping);$('header').addEventListener('change',mapping);
 $('source').addEventListener('change',()=>{const show=$('source').value==='excel';$('pricebox').hidden=!show;invalidate();});
 for(const id of ['reference','quantity','price','shop'])$(id).addEventListener('input',invalidate);
@@ -45,9 +51,9 @@ function display(result){
  $('rows').replaceChildren();let requested=0,accepted=0;
  for(const row of result.rows){
  const tr=document.createElement('tr');const values=[`${row.line} · ${row.reference}`,row.name||'—',row.requested,row.available??'—',row.accepted,row.unit_ht===undefined?'—':new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:6}).format(Number(row.unit_ht)),row.subtotal===undefined?'—':currency(row.subtotal),row.error||(!row.accepted?'Rupture':row.missing?'Quantité réduite':'Disponible')];
- values.forEach((value,i)=>{const td=document.createElement('td');td.textContent=value;if(i===7)td.className=row.error?'bad':row.missing?'warn':'good';tr.append(td);});$('rows').append(tr);requested+=Number(row.requested)||0;accepted+=row.accepted;
+ values.forEach((value,i)=>{const td=document.createElement('td');if(i===7){const pill=document.createElement('span');pill.className='pill '+(row.error||!row.accepted?'bad':row.missing?'warn':'good');pill.textContent=value;td.append(pill);}else td.textContent=value;tr.append(td);});$('rows').append(tr);requested+=Number(row.requested)||0;accepted+=row.accepted;
  }
- $('requested').textContent=requested;$('accepted').textContent=accepted;$('missing').textContent=requested-accepted;$('total').textContent=currency(result.ht);$('checked').textContent='Vérifié le '+new Date(result.checked_at).toLocaleString('fr-FR');$('results').hidden=false;
+ $('requested').textContent=requested;$('accepted').textContent=accepted;$('missing').textContent=requested-accepted;$('total').textContent=currency(result.ht);$('checked').textContent='Vérifié le '+new Date(result.checked_at).toLocaleString('fr-FR');$('results').hidden=false;setStep(3);
 }
 async function run(){
  $('check').disabled=true;
@@ -60,10 +66,11 @@ async function run(){
  finally{$('check').disabled=false;}
 }
 $('check').addEventListener('click',run);
-if(!token)message('Ouvrez l’outil avec « Lancer FullMoon.command » pour créer une session locale sécurisée.',true);
+if(!token)message('Ouvrez l’outil avec « Lancer FullMoon.command » (Mac) ou « Lancer FullMoon.bat » (Windows) pour créer une session locale sécurisée.',true);
 
 let cartTicket=null;
-function cartMessage(text,error=false){$('cartmessage').textContent=text;$('cartmessage').className=error?'bad':'good';}
+function cartMessage(text,error=false){$('cartmessage').textContent=text;$('cartmessage').className='notice '+(error?'bad':'good');}
+function cartChip(active){$('cartchip').classList.toggle('on',active);$('cartchip').lastChild.textContent=active?'Paniers actifs':'Paniers inactifs';}
 function resetCart(){cartTicket=null;$('cartconfirmation').hidden=true;}
 for(const id of ['cartref','cartdelivery','cartbilling','customersearch'])$(id).addEventListener('input',resetCart);
 $('shop').addEventListener('input',()=>{$('customerfields').hidden=true;$('cartcustomer').replaceChildren();});
@@ -77,10 +84,10 @@ $('activatecart').addEventListener('click',()=>cartAction(async()=>{
  const key=$('cartkey').value.trim();$('cartkey').value='';
  await api('/cart/key',{key,shop:$('shop').value});
  $('keystatus').textContent='Clé vérifiée et active pour cette session. Seule la création de paniers est autorisée.';
- $('cartconfig').open=false;cartMessage('Accès aux paniers activé.');
+ $('cartconfig').open=false;cartChip(true);cartMessage('Accès aux paniers activé.');
 }));
 $('forgetcart').addEventListener('click',()=>cartAction(async()=>{
- await api('/cart/forget',{});$('cartkey').value='';resetCart();$('keystatus').textContent='Clé oubliée.';cartMessage('Accès aux paniers désactivé.');
+ await api('/cart/forget',{});$('cartkey').value='';resetCart();$('keystatus').textContent='Clé oubliée.';cartChip(false);cartMessage('Accès aux paniers désactivé.');
 }));
 async function customerAddresses(){
  resetCart();$('cartdelivery').replaceChildren();$('cartbilling').replaceChildren();
