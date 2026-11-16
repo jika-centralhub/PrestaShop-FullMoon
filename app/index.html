@@ -43,6 +43,30 @@
 </div>
 
 <main>
+<section class="card" id="clientsection">
+ <div class="cardhead"><span class="num" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></span><div><h2>Trouver un client</h2><p>Tapez une partie de l’e-mail, un nom, une entreprise ou un numéro client. Consultation seule.</p></div></div>
+ <div class="searchbox">
+  <label class="searchfield"><span class="visually-hidden">Rechercher un client</span>
+   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16 16 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+   <input id="clientsearch" type="search" autocomplete="off" spellcheck="false" placeholder="ex. contact@entreprise.fr, @entreprise, Dupont ou 1234" role="combobox" aria-expanded="false" aria-controls="clientresults" aria-autocomplete="list">
+  </label>
+  <button id="clientrefresh" class="ghost" type="button" title="Relire le répertoire clients dans PrestaShop">Actualiser</button>
+ </div>
+ <p id="clientstatus" class="hint searchstatus" role="status" aria-live="polite">Chargement du répertoire clients…</p>
+ <ul id="clientresults" class="resultlist" role="listbox" hidden></ul>
+ <div id="clientrecent" class="recent" hidden></div>
+ <div id="clientcard" class="clientcard" hidden>
+  <div class="clientcard-head">
+   <div><p class="eyebrow">Client n° <span id="cardid"></span></p><h3 id="cardname"></h3></div>
+   <button id="cardclose" class="copy" type="button">Fermer</button>
+  </div>
+  <div class="copyrow"><span>E-mail</span><strong id="cardemail"></strong><button id="cardemailcopy" class="copy" type="button">Copier</button></div>
+  <h4>Adresses enregistrées</h4>
+  <p class="hint">Adresses à consulter pour la livraison ou la facturation. Aucun rôle ni adresse par défaut n’est attribué par cette liste.</p>
+  <p id="cardstatus" class="hint" role="status"></p>
+  <div id="cardaddresses" class="grid"></div>
+ </div>
+</section>
 <section class="card" id="importsection">
  <div class="cardhead"><span class="num">1</span><div><h2>Importer la commande</h2><p>Glissez le fichier du client ou choisissez-le sur ce poste.</p></div></div>
  <label class="drop" for="file" id="dropzone">
@@ -103,6 +127,7 @@
    <label>Référence de la commande client<input id="cartref" maxlength="120" placeholder="Ex. AIR-VAPE-12-11-2026"></label>
    <label>Client existant — e-mail exact ou ID<input id="customersearch" autocomplete="off" placeholder="E-mail du client ou numéro"></label>
   </div>
+  <p class="hint">Ce champ est pré-rempli avec le client ouvert dans « Trouver un client », en haut de la page.</p>
   <div class="actions"><button id="findcustomer" class="secondary">Rechercher le client</button></div>
   <div id="customerfields" hidden>
    <div class="grid">
@@ -112,23 +137,6 @@
    </div>
   </div>
 
-  <details id="directory" class="subpanel">
-   <summary>Consulter le répertoire des clients <small>Lecture seule</small></summary>
-   <p class="hint">Sélectionnez un client pour consulter son e-mail et ses adresses enregistrées. Consultation uniquement.</p>
-   <div class="actions"><button id="loadclients" class="ghost">Charger les clients depuis le MCP</button></div>
-   <div class="grid">
-    <label>Filtrer par nom, entreprise ou ID<input id="clientfilter" type="search" placeholder="Rechercher dans le répertoire" disabled autocomplete="off"></label>
-    <label>Clients<select id="clientdirectory" disabled><option value="">Chargez le répertoire</option></select></label>
-   </div>
-   <p id="clientinfo" class="strong"></p>
-   <div id="clientcontact" hidden>
-    <p id="clientemail"></p>
-    <h4>Adresses enregistrées</h4>
-    <p class="hint">Adresses à consulter pour la livraison ou la facturation. Aucun rôle ni adresse par défaut n’est attribué par cette liste.</p>
-    <div id="clientaddresses" class="grid"></div>
-   </div>
-   <p id="directorystatus" class="hint" role="status" aria-live="polite">Aucun client chargé.</p>
-  </details>
  </div>
 
  <div class="panel">

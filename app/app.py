@@ -55,7 +55,8 @@ async def customer_lookup(payload):
 async def customer_directory(payload):
     shop = positive(payload.get('shop'))
     customers = {}
-    fields = ['id', 'firstname', 'lastname', 'company']
+    # The e-mail is included so the page can search by partial address locally. It stays in memory, in the page.
+    fields = ['id', 'firstname', 'lastname', 'company', 'email']
     async with mcp_session() as session:
         for offset in range(0, 20000, 200):
             page = await call(session, 'ps_query', {'resource': 'customers',

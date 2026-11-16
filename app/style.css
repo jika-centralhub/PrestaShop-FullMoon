@@ -131,14 +131,45 @@ details[open]>summary{margin-bottom:12px}
 .subpanel{margin-top:18px;padding:16px 18px;border-radius:12px;background:#faf9f8}
 .subpanel summary{font-size:14px}.subpanel summary small{font-size:11px;font-weight:600;color:var(--muted);padding:3px 8px;border-radius:99px;background:#efedee;white-space:nowrap}
 .history{margin:0;border:1px solid var(--line);background:#fff}
-#clientinfo:not(:empty){font-weight:700;color:var(--ink)}
-#clientemail{overflow-wrap:anywhere;color:var(--ink)}
 .contactaddress{padding:16px;border-radius:12px;background:#fff;border:1px solid var(--line)}
 .contactaddress strong{color:var(--ink)}.contactaddress p{margin:6px 0 0;font-size:13px}
 #cartconfirmation{margin-top:18px;padding:22px;border-radius:14px;background:linear-gradient(135deg,#f0f8f3,#fff);border:1px solid #cfe8d9}
 #cartsummary{color:var(--ink);font-weight:600;font-size:14px;line-height:1.6}
 #carthistory p{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:12px 0;margin:0;border-bottom:1px solid #f0eef0;color:var(--text);font-size:13px}
 #carthistory button{padding:9px 14px;font-size:12px}
+
+/* Trouver un client */
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+#clientsection{position:relative;z-index:2}
+.num svg{display:block}
+.searchbox{display:flex;gap:12px;align-items:stretch}
+.searchfield{position:relative;flex:1;min-width:0}
+.searchfield svg{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.searchfield input{margin:0;padding:16px 16px 16px 46px;font-size:16px;font-weight:600}
+.searchbox>button{flex:none;padding:0 22px}
+.searchstatus{margin:10px 0 0}
+.resultlist{list-style:none;margin:10px 0 0;padding:6px;max-height:430px;overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff;box-shadow:var(--shadow)}
+.resultbtn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:10px 14px;border-radius:9px;background:transparent;color:var(--ink);box-shadow:none;text-align:left;font-weight:600}
+.resultbtn:hover:not(:disabled),li.active .resultbtn{background:var(--red-soft);transform:none}
+.resultbtn strong{font-size:14px;overflow-wrap:anywhere}
+.resultbtn span{font-size:12px;font-weight:500;color:var(--muted);overflow-wrap:anywhere}
+.resultbtn mark{background:rgba(214,40,68,.2);color:inherit;border-radius:3px;padding:0 1px}
+.resultlist .empty,.resultlist .more{padding:10px 14px;font-size:13px;color:var(--muted)}
+.recent{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:14px 0 0}
+.recent span{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-right:4px}
+button.recentchip{padding:6px 12px;border-radius:99px;background:#f1f0f0;color:var(--ink);box-shadow:none;font-size:12px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+button.recentchip:hover:not(:disabled){background:var(--red-soft);transform:none}
+.clientcard{margin-top:18px;padding:22px;border-radius:14px;background:#faf9f8;border:1px solid var(--line)}
+.clientcard-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
+.clientcard-head h3{margin:0;font-size:20px}
+.copyrow{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:16px 0 4px;padding:12px 14px;border-radius:10px;background:#fff;border:1px solid var(--line)}
+.copyrow span{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.copyrow strong{flex:1;min-width:0;color:var(--ink);font-size:15px;overflow-wrap:anywhere}
+button.copy{padding:7px 13px;border-radius:9px;background:#fff;color:var(--ink);box-shadow:inset 0 0 0 1.5px #d6d3d7;font-size:12px}
+button.copy:hover:not(:disabled){background:#f4f3f3}
+button.copy.done{color:var(--green);box-shadow:inset 0 0 0 1.5px var(--green)}
+.contactaddress .copy{margin-top:10px}
+#cardstatus:empty{display:none}
 
 footer{display:flex;align-items:center;justify-content:center;gap:10px;padding:26px 20px 40px;font-size:12px;color:#8d8b92;text-align:center}
 footer img{border-radius:6px}
@@ -151,6 +182,7 @@ footer img{border-radius:6px}
  main{padding:0 12px}.card{padding:22px 18px}.panel{padding:16px}
  .stats strong{font-size:24px}.actions button{width:100%}
  #cartconfig summary{flex-wrap:wrap}#keystatus{flex-basis:100%;order:3;margin:4px 0 0 36px}
+ .searchbox{flex-direction:column}.searchbox>button{padding:12px}.clientcard{padding:16px}
  .rule{padding:16px 18px;gap:14px}.rule img{width:56px}.rule strong{font-size:15px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
