@@ -67,5 +67,26 @@ class HintTests(unittest.TestCase):
     def test_ambiguity(self):
         self.assertIsNone(customer_hint('Acheteur : Test\nEmail : buyer@example.test\nEmail : supplier@example.test')['email'])
 
+    def test_courriel_label_accepted(self):
+        self.assertEqual(customer_hint('Acheteur : Test\nCourriel : buyer@example.test')['email'], 'buyer@example.test')
+
+    def test_terms_keep_buyer_company_and_city_but_not_supplier_title_or_email(self):
+        header = ('COMMANDE FOURNISSEUR N° 12 Titre\n'
+                  'Fournisseur : Exemple Grossiste Adresse de facturation : Adresse de livraison :\n'
+                  'Date commande : 3 novembre 2026 Boulangerie Fictive Boulangerie Fictive\n'
+                  'Acheteur : J. Dupontel 12 rue des Lilas 12 rue des Lilas\n'
+                  'Email :contact@vendeur-exemple.test 75000 Villeneuve 75000 Villeneuve')
+        terms = customer_hint(header)['terms']
+        for word in ('boulangerie', 'fictive', 'dupontel', 'lilas', 'villeneuve'):
+            self.assertIn(word, terms)
+        for word in ('grossiste', 'exemple', 'titre', 'novembre', 'contact', 'vendeur', 'acheteur', 'rue'):
+            self.assertNotIn(word, terms)
+        self.assertEqual(len(terms), len(set(terms)))
+
+    def test_terms_present_without_buyer_label(self):
+        hint = customer_hint('Société Fictive Lyon\nEmail : x@example.test')
+        self.assertIsNone(hint['email'])
+        self.assertIn('fictive', hint['terms'])
+
     def test_exact_email(self):
         self.assertEqual(customer_hint('Acheteur : Test\nEmail : BUYER@example.test')['email'], 'buyer@example.test')
