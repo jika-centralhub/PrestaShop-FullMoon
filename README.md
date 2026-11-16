@@ -2,7 +2,21 @@
 
 Sources de l’installation locale FullMoon Distribution, transférées pour reprise sur un autre poste. Le serveur MCP expose des outils en lecture seule. L’interface locale importe Excel/CSV/PDF (voir `IMPORT-PDF.md`), consulte les stocks et les clients et affiche leurs coordonnées.
 
-## Installation sur un autre poste
+## Installation rapide sur Mac
+
+1. Installer **Python 3.13** depuis [python.org](https://www.python.org/downloads/macos/) (« macOS installer »).
+2. Créer dans PrestaShop (Paramètres avancés → Webservice) une **clé dédiée à ce Mac**, avec uniquement la permission GET.
+3. Ouvrir le Terminal et coller :
+
+```sh
+zsh -c "$(curl -fsSL https://raw.githubusercontent.com/jika-centralhub/PrestaShop-FullMoon/main/Installer%20FullMoon.command)"
+```
+
+Le script vérifie Python et Git (et propose d'installer Git si besoin), télécharge l'application dans `~/Documents/PrestaShop-FullMoon`, installe ses composants, demande la clé (saisie masquée, enregistrée dans `.env` accessible au seul utilisateur), lance les tests hors ligne, vérifie la connexion à la boutique et crée le raccourci **FullMoon** sur le Bureau. Relancé plus tard, il met l'application à jour en conservant la clé. Il ne modifie ni PrestaShop ni les réglages du Mac.
+
+Le raccourci démarre l'application en arrière-plan si nécessaire puis l'ouvre dans Safari. Chaque Mac a son propre registre anti-doublon des paniers.
+
+## Installation manuelle
 
 Prérequis : Git et Python 3.13. Les commandes suivantes concernent macOS/Linux.
 
