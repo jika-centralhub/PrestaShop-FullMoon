@@ -186,7 +186,12 @@ async def checked_cart(payload):
             raise ValueError('Importez entre 1 et 500 lignes de commande.')
         catalog, minima = {}, {}
         for ref in dict.fromkeys(str(r.get('reference', '')).strip() for r in rows):
-            item = await resolve(session, ref, profile['id_shop'])
+            try:
+                if not ref:
+                    raise ValueError('Référence manquante.')
+                item = await resolve(session, ref, profile['id_shop'])
+            except ValueError as error:
+                raise ValueError(f'Référence {ref or "vide"} : {error} Retirez cette ligne de la commande ou corrigez le produit dans PrestaShop.') from None
             product = await call(session, 'ps_get_record', {'resource': 'products', 'record_id': item['product_id']})
             if str(product.get('available_for_order')) != '1':
                 raise ValueError(f'Produit {ref} indisponible à la commande.')
