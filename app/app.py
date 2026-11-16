@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / 'vendor'))
 sys.path.append(str(PROJECT))
 import openpyxl
 import xlrd
-from carts import CartService, positive, merged_rows, parse_xml
+from carts import CartService, KeyRejected, positive, merged_rows, parse_xml
 from pdf_import import read_pdf
 from ps_client import PSClient
 from mcp import ClientSession, StdioServerParameters
@@ -238,6 +238,8 @@ def cart_route(path, payload):
             raise
     if path == '/cart/key':
         return CARTS.writer.configure(payload.get('key'), positive(payload.get('shop')))
+    if path == '/cart/status':
+        return CARTS.writer.status(positive(payload.get('shop')))
     if path == '/cart/forget':
         return CARTS.writer.clear()
     if path == '/cart/history':
@@ -523,6 +525,10 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 result=asyncio.run(asyncio.wait_for(check(payload),timeout=180))
             self.respond(200,result)
+        except KeyRejected as error:
+            # The saved cart key no longer works: forget it and tell the page to ask for a new one.
+            CARTS.writer.clear()
+            self.respond(400,{'error':str(error),'key_rejected':True})
         except ValueError as error:
             self.respond(400,{'error':str(error)})
         except Exception:

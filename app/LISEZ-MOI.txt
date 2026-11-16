@@ -13,7 +13,9 @@ La section « Préparer le panier dans PrestaShop » crée un panier natif pour 
 Activation
 - Créez une clé Webservice distincte. Autorisez uniquement Voir (GET) et Ajouter (POST) sur la ressource carts. Gardez la clé ChatGPT/MCP en lecture seule.
 - Collez cette nouvelle clé dans le champ masqué « Activer l’accès aux paniers ». Ne la partagez pas dans la conversation. L’outil vérifie les permissions et refuse les autres droits d’écriture.
-- La clé reste uniquement en mémoire jusqu’à l’arrêt du serveur. Elle devra être saisie au prochain lancement. « Oublier la clé » coupe immédiatement cet accès.
+- La clé est enregistrée sur ce poste dans app/paniers/cle-paniers.key (fichier lisible par l’utilisateur seul, dossier privé, jamais publié sur GitHub). Elle est revérifiée auprès de PrestaShop à chaque ouverture de la page.
+- Si PrestaShop la refuse (clé supprimée, désactivée ou droits modifiés), à l’ouverture comme à la préparation ou à la création d’un panier, l’outil l’efface, affiche une alerte et ouvre la saisie d’une nouvelle clé. Un envoi refusé pour cette raison ne crée aucun panier et ne bloque pas la référence de commande.
+- « Oublier la clé » coupe immédiatement cet accès et efface le fichier.
 
 Utilisation
 1. Importez le fichier Excel ou CSV et vérifiez les colonnes. Tous les montants sont HT. Aucun calcul de TVA ni conversion TTC n’est effectué. Les prix importés doivent être HT.
@@ -29,7 +31,7 @@ Les paniers ne réservent pas le stock. Une vente simultanée peut changer les d
 
 Le dossier paniers contient un registre local d’envois. Une référence de commande donnée ne peut être envoyée qu’une fois pour le même client et la même boutique. En cas de coupure réseau ou de réponse incertaine, aucun POST automatique supplémentaire n’est effectué. Vérifiez le back-office avant toute autre action. Si un numéro de panier est connu, le bouton « Revérifier le panier existant » fait uniquement une lecture. Ne supprimez pas le registre et ne changez pas la référence pour contourner un envoi incertain.
 
-La clé dédiée n’est jamais enregistrée dans le registre ni envoyée au MCP. Le serveur local écoute uniquement sur 127.0.0.1 et exige sa session locale. Les requêtes panier vont exclusivement en HTTPS à fullmoon-distribution.fr, sans redirection.
+La clé dédiée n’est jamais enregistrée dans le registre ni envoyée au MCP ; seul le fichier privé cle-paniers.key la conserve. Le serveur local écoute uniquement sur 127.0.0.1 et exige sa session locale. Les requêtes panier vont exclusivement en HTTPS à fullmoon-distribution.fr, sans redirection.
 
 RÉPERTOIRE DES CLIENTS
 La section « Répertoire des clients · Lecture seule » charge les clients actifs de la boutique sélectionnée via le MCP. Cliquez sur « Charger les clients depuis le MCP », puis filtrez par nom, entreprise ou identifiant. La liste est paginée côté API pour inclure tous les clients (jusqu’à 20 000). Seuls l’ID, le nom, le prénom et l’entreprise sont transmis à l’interface. Le répertoire est indépendant des paniers et ne modifie aucune donnée. Un changement de boutique efface la liste affichée et nécessite un nouveau chargement.

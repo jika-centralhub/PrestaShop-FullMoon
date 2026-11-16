@@ -15,7 +15,7 @@ function setStep(){scheduleGuide();}
 function invalidate(){cartCreated=false;$('results').hidden=true;resetCart();setStep();}
 async function api(path,payload){
  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Session':token||''},body:JSON.stringify(payload)});
- const data=await response.json();if(!response.ok)throw Error(data.error||'Erreur de connexion');return data;
+ const data=await response.json();if(!response.ok){const error=Error(data.error||'Erreur de connexion');error.keyRejected=Boolean(data.key_rejected);throw error;}return data;
 }
 function options(select,headers,pattern){select.replaceChildren();headers.forEach((label,i)=>{const option=new Option(`${i+1} · ${label||'Sans titre'}`,i);select.add(option);});const found=headers.findIndex(x=>pattern.test(x));select.value=String(Math.max(0,found));}
 function mapping(){
@@ -142,7 +142,7 @@ async function run(){
 $('check').addEventListener('click',run);
 if(!token)message('Ouvrez l’outil avec « Lancer FullMoon.command » (Mac) ou « Lancer FullMoon.bat » (Windows) pour créer une session locale sécurisée.',true);
 
-let cartTicket=null;
+let cartTicket=null,keyLost=false;
 function cartMessage(text,error=false){$('cartmessage').textContent=text;$('cartmessage').className='notice '+(error?'bad':'good');}
 function cartChip(active){$('cartchip').classList.toggle('on',active);$('cartchip').lastChild.textContent=active?'Paniers actifs':'Paniers inactifs';}
 function resetCart(){cartTicket=null;$('cartconfirmation').hidden=true;}
@@ -151,18 +151,32 @@ $('shop').addEventListener('input',clearCartClient);
 async function cartAction(action){
  const controls=[...document.querySelectorAll('button,input,select,textarea')].map(el=>[el,el.disabled]);
  controls.forEach(([el])=>el.disabled=true);
- try{await action();}catch(error){cartMessage(error.message,true);}
+ try{await action();}catch(error){if(error.keyRejected)cartKeyRejected(error.message);else cartMessage(error.message,true);}
  finally{controls.forEach(([el,disabled])=>el.disabled=disabled);}
 }
 $('activatecart').addEventListener('click',()=>cartAction(async()=>{
  const key=$('cartkey').value.trim();$('cartkey').value='';
  await api('/cart/key',{key,shop:$('shop').value});
- $('keystatus').textContent='Clé vérifiée et active pour cette session. Seule la création de paniers est autorisée.';
- $('cartconfig').open=false;cartChip(true);cartMessage('Accès aux paniers activé.');
+ cartKeyActive('Clé vérifiée et enregistrée sur ce poste. Seule la création de paniers est autorisée.');cartMessage('Accès aux paniers activé. La clé sera reprise automatiquement aux prochains lancements.');
 }));
 $('forgetcart').addEventListener('click',()=>cartAction(async()=>{
- await api('/cart/forget',{});$('cartkey').value='';resetCart();$('keystatus').textContent='Clé oubliée.';cartChip(false);cartMessage('Accès aux paniers désactivé.');
+ await api('/cart/forget',{});$('cartkey').value='';resetCart();$('keystatus').textContent='Clé oubliée et effacée de ce poste.';cartChip(false);cartMessage('Accès aux paniers désactivé.');
 }));
+// Clé panier refusée par PrestaShop : elle est oubliée côté serveur, la page le signale et ouvre la saisie.
+function cartKeyRejected(text){
+ keyLost=true;resetCart();cartChip(false);$('keystatus').textContent='Clé refusée par PrestaShop : saisissez une nouvelle clé.';
+ $('cartconfig').open=true;$('cartconfig').classList.add('alert');cartMessage(text,true);
+ $('cartconfig').scrollIntoView({behavior:calm()?'auto':'smooth',block:'center'});$('cartkey').focus({preventScroll:true});
+}
+function cartKeyActive(text){keyLost=false;$('cartconfig').classList.remove('alert');$('keystatus').textContent=text;$('cartconfig').open=false;cartChip(true);}
+async function loadCartKey(){
+ if(!token)return;
+ try{
+  const status=await api('/cart/status',{shop:$('shop').value});
+  if(status.ready)cartKeyActive('Clé enregistrée sur ce poste et vérifiée. Seule la création de paniers est autorisée.');
+  else if(status.rejected)cartKeyRejected(status.rejected);
+ }catch(error){$('keystatus').textContent='Clé enregistrée non vérifiée : '+error.message;}
+}
 async function customerAddresses(){
  resetCart();$('cartdelivery').replaceChildren();$('cartbilling').replaceChildren();
  const result=await api('/cart/details',{shop:$('shop').value,cart:{customer:$('cartcustomer').value}});
@@ -450,7 +464,7 @@ async function detectPdfCustomer(hint,version){
  $('pdfclientstatus').textContent=cause+(found.length?` ${found.length} client(s) possible(s) proposé(s) dans « Trouver un client », après le contrôle des stocks : ouvrez la fiche, vérifiez-la puis validez-la.`:' Recherchez le client dans « Trouver un client », après le contrôle des stocks'+($('clientsearch').value?' (recherche pré-remplie).':'.'));
 }
 
-if(token)loadClients();else $('clientstatus').textContent='Session locale absente : le répertoire clients ne peut pas être chargé.';
+if(token){loadClients();loadCartKey();}else $('clientstatus').textContent='Session locale absente : le répertoire clients ne peut pas être chargé.';
 
 // ——— Bandeau guide : toujours visible, il indique l'étape en cours et la prochaine action ———
 // L'état est relu depuis la page à chaque changement ; le bouton du bandeau mène à l'endroit utile, sans rien valider à votre place.
@@ -468,7 +482,7 @@ function guideState(){
   return {key:'client',step:3,progress:48,title:'Trouvez le client',text:'Tapez une partie de son e-mail, son nom ou son entreprise.',cta:'Rechercher un client',target:'clientsearch'};
  }
  if(!$('cartdelivery').value||!$('cartbilling').value)return {key:'addresses',step:4,progress:70,title:'Choisissez les adresses',text:'Sélectionnez l’adresse de livraison et l’adresse de facturation.',cta:'Voir les adresses',target:'customerfields'};
- if(!$('cartchip').classList.contains('on'))return {key:'key',step:4,progress:78,title:'Activez l’accès aux paniers',text:'Collez la clé Webservice dédiée aux paniers, puis vérifiez-la.',cta:'Saisir la clé',target:'cartconfig'};
+ if(!$('cartchip').classList.contains('on'))return keyLost?{key:'keylost',step:4,progress:78,title:'Clé panier refusée',text:'PrestaShop n’accepte plus la clé des paniers. Saisissez une nouvelle clé.',cta:'Saisir la clé',target:'cartconfig'}:{key:'key',step:4,progress:78,title:'Activez l’accès aux paniers',text:'Collez la clé Webservice dédiée aux paniers, puis vérifiez-la.',cta:'Saisir la clé',target:'cartconfig'};
  if(!cartTicket)return {key:'prepare',step:4,progress:86,title:'Préparez le panier',text:'Dernière vérification du client, des produits et des stocks.',cta:'Aller à la préparation',target:'preparecart'};
  return {key:'create',step:4,progress:94,title:'Créez le panier',text:'Relisez le récapitulatif, puis créez le panier dans PrestaShop.',cta:'Voir le récapitulatif',target:'cartconfirmation'};
 }
