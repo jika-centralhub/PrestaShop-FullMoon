@@ -203,6 +203,10 @@ tbody tr:hover td{background:#fcf7f8}
 table.results td:nth-child(5){font-weight:800;font-size:15px;color:var(--ink)}
 table.results td:nth-child(n+3):nth-child(-n+7){text-align:right;white-space:nowrap}
 table.results th:nth-child(n+3):nth-child(-n+7){text-align:right}
+tr.removed td{color:var(--muted);background:#faf9f8}
+tr.removed td:not(:last-child){text-decoration:line-through;opacity:.6}
+tr.removed .pill{text-decoration:none;background:#eeecee;color:var(--muted)}
+button.linebtn{padding:5px 11px;font-size:11px;white-space:nowrap}
 .pill{display:inline-block;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:700;white-space:nowrap}
 .pill.good{background:var(--green-soft)}.pill.warn{background:var(--amber-soft)}.pill.bad{background:var(--red-soft);white-space:normal}
 #pdfreview{margin-top:20px;padding:20px;border-radius:15px;background:#faf9f8;border:1px solid var(--line);animation:rise .55s var(--ease) both}
