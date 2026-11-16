@@ -142,7 +142,7 @@
 
  <details id="cartconfig" class="panel">
   <summary><span class="tag">A</span>Activer l’accès aux paniers<em id="keystatus" role="status">Accès aux paniers à activer.</em></summary>
-  <p class="hint">Dans PrestaShop → Paramètres avancés → Webservice, créez une clé distincte avec uniquement GET et POST sur <strong>carts</strong>. Conservez la clé MCP actuelle en lecture seule. Collez la nouvelle clé ici, jamais dans la conversation. Elle reste en mémoire jusqu’à la fermeture du serveur.</p>
+  <p class="hint">Dans PrestaShop → Paramètres avancés → Webservice, créez une clé distincte avec uniquement GET et POST sur <strong>carts</strong>. Conservez la clé MCP actuelle en lecture seule. Collez la nouvelle clé ici, jamais dans la conversation. Elle est enregistrée sur ce poste, dans un fichier lisible par vous seul, et reprise à chaque lancement. Si PrestaShop la refuse, l’outil vous prévient et vous demande une nouvelle clé. « Oublier la clé » l’efface de ce poste.</p>
   <div class="grid"><label>Clé Webservice dédiée aux paniers<input id="cartkey" class="masked" type="text" name="fm-cart-access" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="32" data-1p-ignore data-lpignore="true" data-form-type="other"></label></div>
   <div class="actions"><button id="activatecart" class="secondary">Vérifier et activer la clé</button><button id="forgetcart" class="ghost">Oublier la clé</button></div>
  </details>

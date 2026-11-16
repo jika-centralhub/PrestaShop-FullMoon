@@ -1,4 +1,5 @@
-"""Local cart-only writer. Credentials stay in memory; uncertain POSTs never retry."""
+"""Local cart-only writer. The cart key is kept in a private local file; uncertain POSTs never retry."""
+import os
 import json
 import re
 import secrets
@@ -28,9 +29,55 @@ def parse_xml(raw):
         raise ValueError('Réponse PrestaShop illisible.') from None
 
 
+KEY_REJECTED = ('La clé dédiée aux paniers ne fonctionne plus : PrestaShop la refuse '
+    '(clé supprimée, désactivée ou droits modifiés). Aucun panier n’a été créé. '
+    'Saisissez une nouvelle clé dans « Activer l’accès aux paniers ».')
+
+
+class KeyRejected(ValueError):
+    """PrestaShop refuses the cart key (401/403) or its permissions no longer match."""
+
+
 class CartWriter:
-    def __init__(self):
+    def __init__(self, store=None):
+        # store: private file (0600, folder 0700) keeping the key between launches.
+        self.store = Path(store) if store else None
         self._key = None
+        self.load()
+
+    def load(self):
+        if not self.store or not self.store.is_file():
+            return
+        key = self.store.read_text(encoding='utf-8').strip()
+        if re.fullmatch('[A-Za-z0-9]{32}', key):
+            self._key = key
+
+    def save(self, key):
+        if not self.store:
+            return
+        self.store.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.store.parent.chmod(0o700)
+        temp = self.store.with_suffix('.tmp')
+        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+            handle.write(key)
+        os.replace(temp, self.store)
+        self.store.chmod(0o600)
+
+    @property
+    def ready(self):
+        return self._key is not None
+
+    def status(self, shop):
+        """Re-check a saved key with PrestaShop. A refused key is forgotten."""
+        if not self._key:
+            return {'ready': False, 'saved': False}
+        try:
+            self.verify_permissions(shop=shop)
+        except KeyRejected as error:
+            self.clear()
+            return {'ready': False, 'saved': False, 'rejected': str(error)}
+        return {'ready': True, 'saved': bool(self.store)}
 
     def request(self, method, path, *, body=None, key=None, shop=None):
         allowed = (method == 'GET' and (path == '' or re.fullmatch(r'/carts/[1-9][0-9]*', path))) or (method == 'POST' and path == '/carts')
@@ -47,6 +94,8 @@ class CartWriter:
                     params={'id_shop': positive(shop)} if shop is not None else None,
                     data=body, headers={'Content-Type': 'application/xml', 'Accept': 'application/xml'},
                     timeout=(10, 45), allow_redirects=False)
+            if response.status_code in (401, 403):
+                raise KeyRejected(KEY_REJECTED)
             if response.status_code not in (200, 201):
                 raise ValueError('PrestaShop a refusé la requête panier. Vérifiez la clé et ses droits.')
             return parse_xml(response.content)
@@ -60,20 +109,23 @@ class CartWriter:
             raise ValueError('Permissions PrestaShop non vérifiables.')
         cart = resources.find('carts')
         if cart is None or any(cart.get(m) != 'true' for m in ('get', 'post')):
-            raise ValueError('La clé dédiée doit autoriser GET et POST sur carts (paniers).')
+            raise KeyRejected('La clé dédiée doit autoriser GET et POST sur carts (paniers). Aucun panier n’a été créé.')
         for resource in resources:
             if any(resource.get(m, 'false') != 'false' for m in ('put', 'delete', 'patch')) or (resource.tag != 'carts' and resource.get('post', 'false') != 'false'):
-                raise ValueError('Clé trop permissive. Autorisez uniquement GET et POST sur carts, sans autre écriture.')
+                raise KeyRejected('Clé trop permissive. Autorisez uniquement GET et POST sur carts, sans autre écriture. Aucun panier n’a été créé.')
 
     def configure(self, key, shop):
         if not isinstance(key, str) or not re.fullmatch('[A-Za-z0-9]{32}', key):
             raise ValueError('Clé Webservice PrestaShop attendue (32 caractères). Ne saisissez pas de clé OpenAI.')
         self.verify_permissions(key, shop)
         self._key = key
-        return {'ready': True}
+        self.save(key)
+        return {'ready': True, 'saved': bool(self.store)}
 
     def clear(self):
         self._key = None
+        if self.store:
+            self.store.unlink(missing_ok=True)
         return {'ready': False}
 
 
@@ -131,8 +183,8 @@ def verify_cart(root, expected, cart_id):
 
 class CartService:
     def __init__(self, root):
-        self.writer = CartWriter()
         self.folder = Path(root) / 'paniers'
+        self.writer = CartWriter(self.folder / 'cle-paniers.key')
         self.previews = {}
 
     @contextmanager
@@ -221,6 +273,12 @@ class CartService:
             cart_id = positive(root.findtext('./cart/id', ''))
             with self.database() as db:
                 db.execute("UPDATE carts SET state='created_unverified',cart_id=? WHERE operation=?", (cart_id, ticket))
+        except KeyRejected:
+            # PrestaShop refused the credential: nothing was created, so the reference is released.
+            with self.database() as db:
+                db.execute("DELETE FROM carts WHERE operation=? AND state='uncertain' AND cart_id IS NULL", (ticket,))
+            self.writer.clear()
+            raise
         except Exception:
             raise ValueError('Résultat de création incertain. Vérifiez PrestaShop avant toute autre tentative. Cette référence est bloquée pour éviter un doublon.') from None
         return self.existing(ticket)
