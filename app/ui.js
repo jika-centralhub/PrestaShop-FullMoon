@@ -3,11 +3,11 @@ const $=id=>document.getElementById(id);
 let token=location.hash.slice(1)||sessionStorage.getItem('fullmoon-session');
 if(token)sessionStorage.setItem('fullmoon-session',token);
 history.replaceState(null,'',location.pathname);
-let sheets=[],pdfReviewRequired=false,importVersion=0;
+let sheets=[],pdfReviewRequired=false,importVersion=0,checking=false,cartCreated=false,guideTimer=0;
 const currency=value=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(Number(value));
 function message(text,error=false){$('message').textContent=text;$('message').className='notice'+(error?' bad':'');}
-function setStep(step){[1,2,3].forEach(n=>{const li=$('step'+n);li.classList.toggle('active',n===step);li.classList.toggle('done',n<step);});}
-function invalidate(){$('results').hidden=true;resetCart();setStep(sheets.length?2:1);}
+function setStep(){scheduleGuide();}
+function invalidate(){cartCreated=false;$('results').hidden=true;resetCart();setStep();}
 async function api(path,payload){
  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Session':token||''},body:JSON.stringify(payload)});
  const data=await response.json();if(!response.ok)throw Error(data.error||'Erreur de connexion');return data;
@@ -19,12 +19,12 @@ function mapping(){
  options($('reference'),headers,/réf|ref|sku|code article/i);options($('quantity'),headers,/quant|qty|qté|qte|nb/i);options($('price'),headers,/prix|price|tarif/i);invalidate();
 }
 $('file').addEventListener('change',async()=>{
- invalidate();const version=++importVersion;pdfReviewRequired=false;$('pdfreview').hidden=true;$('pdfconfirmed').checked=false;$('pdfrows').replaceChildren();$('check').disabled=true;const file=$('file').files[0];if(!file)return;
+ invalidate();clearCartClient();const version=++importVersion;pdfReviewRequired=false;$('pdfreview').hidden=true;$('pdfconfirmed').checked=false;$('pdfrows').replaceChildren();$('check').disabled=true;sheets=[];dropzone.classList.remove('loaded');$('droptitle').textContent='Déposez le fichier de commande ici';$('mapping').hidden=true;$('filename').textContent='';const file=$('file').files[0];if(!file){scheduleGuide();return;}
  try{
  if(file.size>8000000)throw Error('Fichier limité à 8 Mo.');message('Lecture du fichier de commande…');
  const bytes=new Uint8Array(await file.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
  const data=await api('/import',{name:file.name,data:btoa(binary)});if(version!==importVersion)return;sheets=data.sheets;
- $('sheet').replaceChildren(...sheets.map((s,i)=>new Option(s.name,i)));$('mapping').hidden=false;$('filename').textContent=file.name;mapping();$('check').disabled=false;message('Fichier chargé. Vérifiez les colonnes. Les prix du fichier doivent être hors taxes.');
+ $('sheet').replaceChildren(...sheets.map((s,i)=>new Option(s.name,i)));$('mapping').hidden=false;$('filename').textContent=file.name;dropzone.classList.add('loaded');$('droptitle').textContent='Fichier chargé — déposez-en un autre pour le remplacer';mapping();$('check').disabled=false;message('Fichier chargé. Vérifiez les colonnes. Les prix du fichier doivent être hors taxes.');
  if(data.pdf_review_required){pdfReviewRequired=true;$('pdfreview').hidden=false;$('pdfnotice').textContent=data.notice;$('check').disabled=true;for(const row of sheets[0].rows.slice(1)){const tr=document.createElement('tr');for(const value of row){const td=document.createElement('td');td.textContent=value;tr.append(td);}$('pdfrows').append(tr);}await detectPdfCustomer(data.customer_hint,version);}
  }catch(error){if(version===importVersion)message(error.message,true);}
 });
@@ -50,20 +50,20 @@ function payload(){
 function display(result){
  $('rows').replaceChildren();let requested=0,accepted=0;
  for(const row of result.rows){
- const tr=document.createElement('tr');const values=[`${row.line} · ${row.reference}`,row.name||'—',row.requested,row.available??'—',row.accepted,row.unit_ht===undefined?'—':new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:6}).format(Number(row.unit_ht)),row.subtotal===undefined?'—':currency(row.subtotal),row.error||(!row.accepted?'Rupture':row.missing?'Quantité réduite':'Disponible')];
+ const tr=document.createElement('tr');tr.style.animationDelay=Math.min($('rows').children.length,24)*28+'ms';const values=[`${row.line} · ${row.reference}`,row.name||'—',row.requested,row.available??'—',row.accepted,row.unit_ht===undefined?'—':new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:6}).format(Number(row.unit_ht)),row.subtotal===undefined?'—':currency(row.subtotal),row.error||(!row.accepted?'Rupture':row.missing?'Quantité réduite':'Disponible')];
  values.forEach((value,i)=>{const td=document.createElement('td');if(i===7){const pill=document.createElement('span');pill.className='pill '+(row.error||!row.accepted?'bad':row.missing?'warn':'good');pill.textContent=value;td.append(pill);}else td.textContent=value;tr.append(td);});$('rows').append(tr);requested+=Number(row.requested)||0;accepted+=row.accepted;
  }
- $('requested').textContent=requested;$('accepted').textContent=accepted;$('missing').textContent=requested-accepted;$('total').textContent=currency(result.ht);$('checked').textContent='Vérifié le '+new Date(result.checked_at).toLocaleString('fr-FR');$('results').hidden=false;setStep(3);
+ countUp($('requested'),requested);countUp($('accepted'),accepted);countUp($('missing'),requested-accepted);countUp($('total'),Number(result.ht),currency);const share=requested?Math.round(accepted/requested*100):0;$('ratiobar').style.width='0';$('ratiolabel').textContent=`${share} % de la commande retenue`;setTimeout(()=>{$('ratiobar').style.width=share+'%';},60);$('checked').textContent='Vérifié le '+new Date(result.checked_at).toLocaleString('fr-FR');$('results').hidden=false;setStep(3);
 }
 async function run(){
  $('check').disabled=true;
  try{
-  const input=payload();message('Contrôle des références, prix et stocks via MCP…');
+  const input=payload();checking=true;$('check').classList.add('loading');scheduleGuide();message('Contrôle des références, prix et stocks via MCP…');
   const result=await api('/check',input);display(result);
   const errors=result.rows.some(row=>row.error);
   message(errors?'Des lignes nécessitent une correction.':'Contrôle terminé. Les disponibilités sont affichées.',errors);
  }catch(error){message(error.message,true);}
- finally{$('check').disabled=false;}
+ finally{checking=false;$('check').classList.remove('loading');$('check').disabled=false;scheduleGuide();}
 }
 $('check').addEventListener('click',run);
 if(!token)message('Ouvrez l’outil avec « Lancer FullMoon.command » (Mac) ou « Lancer FullMoon.bat » (Windows) pour créer une session locale sécurisée.',true);
@@ -72,8 +72,8 @@ let cartTicket=null;
 function cartMessage(text,error=false){$('cartmessage').textContent=text;$('cartmessage').className='notice '+(error?'bad':'good');}
 function cartChip(active){$('cartchip').classList.toggle('on',active);$('cartchip').lastChild.textContent=active?'Paniers actifs':'Paniers inactifs';}
 function resetCart(){cartTicket=null;$('cartconfirmation').hidden=true;}
-for(const id of ['cartref','cartdelivery','cartbilling','customersearch'])$(id).addEventListener('input',resetCart);
-$('shop').addEventListener('input',()=>{$('customerfields').hidden=true;$('cartcustomer').replaceChildren();});
+for(const id of ['cartdelivery','cartbilling','customersearch'])$(id).addEventListener('input',resetCart);
+$('shop').addEventListener('input',clearCartClient);
 async function cartAction(action){
  const controls=[...document.querySelectorAll('button,input,select,textarea')].map(el=>[el,el.disabled]);
  controls.forEach(([el])=>el.disabled=true);
@@ -113,9 +113,8 @@ $('findcustomer').addEventListener('click',()=>cartAction(async()=>{
 $('cartcustomer').addEventListener('change',()=>cartAction(customerAddresses));
 $('preparecart').addEventListener('click',()=>cartAction(async()=>{
  resetCart();const input=payload();
- if(!$('cartcustomer').value||!$('cartdelivery').value||!$('cartbilling').value)throw Error('Recherchez le client puis sélectionnez ses deux adresses.');
- if(!$('cartref').value.trim())throw Error('Renseignez la référence de commande du client.');
- input.cart={customer:$('cartcustomer').value,delivery:$('cartdelivery').value,billing:$('cartbilling').value,order_ref:$('cartref').value.trim()};
+ if(!$('cartcustomer').value||!$('cartdelivery').value||!$('cartbilling').value)throw Error('Validez un client puis sélectionnez ses deux adresses.');
+ input.cart={customer:$('cartcustomer').value,delivery:$('cartdelivery').value,billing:$('cartbilling').value,order_ref:orderReference(input.rows)};
  cartMessage('Vérification du client, des produits et des stocks via MCP…');
  const result=await api('/cart/prepare',input);display(result.result);cartTicket=result.ticket;
  $('cartsummary').textContent=`Commande ${result.order_ref} — ${result.customer} — ${result.quantity} unités retenues. Livraison : ${$('cartdelivery').selectedOptions[0].textContent}. Facturation : ${$('cartbilling').selectedOptions[0].textContent}.`;
@@ -140,7 +139,7 @@ $('createcart').addEventListener('click',()=>cartAction(async()=>{
  cartMessage('Dernier contrôle du stock, création puis relecture du panier dans PrestaShop…');
  try{
   const result=await api('/cart/create',{ticket:cartTicket});
-  if(result.result)display(result.result);resetCart();
+  if(result.result)display(result.result);resetCart();cartCreated=true;celebrate($('createcart'),70);
   cartMessage(`Panier n° ${result.cart_id} créé et vérifié dans PrestaShop pour ${result.order_ref}. Retrouvez-le dans Commandes → Paniers, puis créez la commande depuis le back-office. Vérifiez le transport, les prix, les taxes et les stocks avant validation.`);
  }catch(error){resetCart();throw error;}
  finally{await loadCartHistory();}
@@ -247,16 +246,34 @@ async function copyText(text,button){
  clearTimeout(button.copyTimer);button.copyTimer=setTimeout(()=>{button.textContent='Copier';button.classList.remove('done');},1600);
 }
 function copyButton(text){const button=document.createElement('button');button.type='button';button.className='copy';button.textContent='Copier';button.addEventListener('click',()=>copyText(text,button));return button;}
-// Le module panier reprend l'e-mail de la fiche ; son ancienne sélection est effacée pour éviter tout mélange de clients.
-function linkCart(email){
- if(!email||$('customersearch').value===email)return;
- $('customersearch').value=email;resetCart();$('customerfields').hidden=true;$('cartcustomer').replaceChildren();
+// Partie B du panier : un client validé dans sa fiche y est repris directement, avec ses adresses.
+let cardClient=null;
+function clearCartClient(){
+ resetCart();$('customersearch').value='';$('customerfields').hidden=true;$('cartcustomer').replaceChildren();
+ $('cartdelivery').replaceChildren();$('cartbilling').replaceChildren();$('cartvalidated').hidden=true;$('cartmanual').hidden=false;
+ $('cardvalidate').classList.remove('done');$('cardvalidate').firstChild.textContent='Valider ce client pour le panier ';
 }
-function unlinkCart(){$('customersearch').value='';resetCart();$('customerfields').hidden=true;$('cartcustomer').replaceChildren();}
-function closeCard(){cardVersion++;$('clientcard').hidden=true;$('cardaddresses').replaceChildren();}
+async function validateClient(){
+ if(!cardClient)return;
+ const c=cardClient;clearCartClient();
+ $('cartcustomer').replaceChildren(new Option(`n° ${c.id} · ${[c.company,c.firstname,c.lastname,c.email].filter(Boolean).join(' · ')}`,c.id));
+ $('cartvalidatedname').textContent=`${clientLabel(c)} · ${c.email||'n° '+c.id}`;$('cartvalidated').hidden=false;$('cartmanual').hidden=true;
+ $('cardvalidate').classList.add('done');$('cardvalidate').firstChild.textContent='Client validé pour le panier ';celebrate($('cardvalidate'),18);
+ await cartAction(customerAddresses);
+ $('cartsection').scrollIntoView({behavior:'smooth',block:'start'});
+}
+// Référence locale du panier, calculée automatiquement : nom du fichier et empreinte des lignes.
+// Elle n'est pas envoyée à PrestaShop ; le registre local s'en sert pour bloquer un second envoi de la même commande.
+function orderReference(rows){
+ let hash=0x811c9dc5;
+ for(const ch of JSON.stringify(rows.map(r=>[r.reference,r.quantity]))){hash^=ch.charCodeAt(0);hash=Math.imul(hash,16777619)>>>0;}
+ const name=($('filename').textContent||'Commande').replace(/\s+/g,' ').trim().slice(0,100);
+ return `${name} · ${hash.toString(16).padStart(8,'0')}`;
+}
+function closeCard(){cardVersion++;cardClient=null;$('cardvalidate').disabled=true;$('clientcard').hidden=true;$('cardaddresses').replaceChildren();}
 async function openClient(id){
  const version=++cardVersion,shop=$('shop').value,known=clients.find(c=>String(c.id)===String(id));
- hideResults();$('clientcard').hidden=false;$('cardid').textContent=id;
+ hideResults();cardClient=null;$('cardvalidate').disabled=true;$('clientcard').hidden=false;$('cardid').textContent=id;
  $('cardname').textContent=known?clientLabel(known):'Client n° '+id;$('cardemail').textContent=known?.email||'…';$('cardemailcopy').hidden=!known?.email;
  $('cardaddresses').replaceChildren();$('cardstatus').textContent='Lecture des coordonnées via le MCP…';
  try{
@@ -271,7 +288,10 @@ async function openClient(id){
    article.append(title,details,copyButton(lines.join('\n')));$('cardaddresses').append(article);
   }
   $('cardstatus').textContent=data.addresses.length?'':'Aucune adresse enregistrée pour ce client.';
-  rememberClient(c.id);renderRecent();linkCart(c.email);
+  cardClient=c;$('cardvalidate').disabled=false;
+  const already=$('cartcustomer').value===String(c.id)&&!$('cartvalidated').hidden;
+  $('cardvalidate').classList.toggle('done',already);$('cardvalidate').firstChild.textContent=already?'Client validé pour le panier ':'Valider ce client pour le panier ';
+  rememberClient(c.id);renderRecent();
  }catch(error){if(version===cardVersion)$('cardstatus').textContent=error.message;}
 }
 async function exactLookup(email){
@@ -299,6 +319,8 @@ $('clientsearch').addEventListener('keydown',event=>{
 });
 $('clientrefresh').addEventListener('click',()=>loadClients());
 $('cardclose').addEventListener('click',()=>{closeCard();$('clientsearch').focus();});
+$('cardvalidate').addEventListener('click',validateClient);
+$('cartchange').addEventListener('click',()=>{clearCartClient();$('customersearch').focus();});
 $('cardemailcopy').addEventListener('click',()=>copyText($('cardemail').textContent,$('cardemailcopy')));
 $('shop').addEventListener('input',()=>{
  clientsVersion++;clients=[];closeCard();hideResults();hideSuggestions();$('clientrecent').hidden=true;
@@ -339,20 +361,104 @@ async function detectPdfCustomer(hint,version){
    if(version!==importVersion)return;
    if(result.status==='unique'){
     $('clientsearch').value=hint.email;await openClient(result.customers[0].id);
-    $('pdfclientstatus').textContent='Client identifié par l’e-mail acheteur exact '+hint.email+'. Sa fiche est ouverte en haut de la page : vérifiez son identité et ses adresses.';
+    $('pdfclientstatus').textContent='Client identifié par l’e-mail acheteur exact '+hint.email+'. Sa fiche est ouverte dans « Trouver un client », après le contrôle des stocks : vérifiez-la puis validez-la pour le panier.';
     return;
    }
    status=result.status;
   }
  }catch(error){if(version!==importVersion)return;status='error';}
- closeCard();unlinkCart();
+ closeCard();
  await clientsReady;if(version!==importVersion)return;
  const found=suggestClients(hint?.terms);showSuggestions(found);
  const domain=hint?.email?.split('@')[1]||'',useDomain=domain&&!WEBMAIL.test(domain);
  $('clientsearch').value=found.length?'':hint?.email?(useDomain?'@'+domain:hint.email):'';
  const cause=status==='error'?'Recherche par e-mail indisponible.':!hint?.email?'Aucun e-mail acheteur lisible dans le PDF.':status==='ambiguous'?`Plusieurs clients actifs ont l’e-mail ${hint.email}.`:`Aucun client actif n’a l’e-mail ${hint.email} dans PrestaShop.`;
- $('pdfclientstatus').textContent=cause+(found.length?` ${found.length} client(s) possible(s) proposé(s) en haut de la page d’après l’en-tête du PDF : vérifiez puis cliquez pour ouvrir la fiche.`:' Recherchez le client en haut de la page'+($('clientsearch').value?' (recherche pré-remplie).':'.'));
- $('clientsection').scrollIntoView({behavior:'smooth',block:'start'});if(!found.length)$('clientsearch').focus();
+ $('pdfclientstatus').textContent=cause+(found.length?` ${found.length} client(s) possible(s) proposé(s) dans « Trouver un client », après le contrôle des stocks : ouvrez la fiche, vérifiez-la puis validez-la.`:' Recherchez le client dans « Trouver un client », après le contrôle des stocks'+($('clientsearch').value?' (recherche pré-remplie).':'.'));
 }
 
 if(token)loadClients();else $('clientstatus').textContent='Session locale absente : le répertoire clients ne peut pas être chargé.';
+
+// ——— Bandeau guide : toujours visible, il indique l'étape en cours et la prochaine action ———
+// L'état est relu depuis la page à chaque changement ; le bouton du bandeau mène à l'endroit utile, sans rien valider à votre place.
+const calm=()=>matchMedia('(prefers-reduced-motion:reduce)').matches;
+function guideState(){
+ if(!token)return {key:'session',step:1,progress:0,title:'Session locale absente',text:'Relancez l’outil avec « Lancer FullMoon » pour ouvrir une session sécurisée.'};
+ if(!sheets.length)return {key:'import',step:1,progress:4,title:'Importez la commande',text:'Déposez le fichier Excel, CSV ou PDF du client.',cta:'Choisir le fichier',target:'dropzone',pick:true};
+ if(pdfReviewRequired&&!$('pdfconfirmed').checked)return {key:'pdf',step:1,progress:16,title:'Vérifiez les lignes du PDF',text:'Contrôlez les références et les quantités extraites, puis cochez la confirmation.',cta:'Voir les lignes',target:'pdfreview'};
+ if(checking)return {key:'checking',step:2,progress:34,title:'Contrôle en cours',text:'Lecture des stocks et des prix dans PrestaShop…',busy:true,target:'check'};
+ if($('results').hidden)return {key:'check',step:2,progress:27,title:'Contrôlez les disponibilités',text:'Vérifiez les colonnes reconnues, puis lancez le contrôle des stocks.',cta:'Aller au contrôle',target:'check'};
+ if(cartCreated)return {key:'created',step:5,progress:100,title:'Panier créé dans PrestaShop',text:'Retrouvez-le dans Commandes → Paniers pour établir la commande.',cta:'Nouvelle commande',target:'dropzone',pick:true,finished:true};
+ if(!$('cartcustomer').value){
+  if(!$('clientcard').hidden)return {key:'validate',step:3,progress:58,title:'Validez ce client',text:'Vérifiez sa fiche et ses adresses, puis validez-le pour le panier.',cta:'Voir la fiche',target:'clientcard'};
+  if(!$('clientsuggest').hidden)return {key:'suggest',step:3,progress:52,title:'Choisissez le client',text:`${$('suggestlist').children.length} client(s) proposé(s) d’après l’en-tête du PDF.`,cta:'Voir les suggestions',target:'clientsuggest'};
+  return {key:'client',step:3,progress:48,title:'Trouvez le client',text:'Tapez une partie de son e-mail, son nom ou son entreprise.',cta:'Rechercher un client',target:'clientsearch'};
+ }
+ if(!$('cartdelivery').value||!$('cartbilling').value)return {key:'addresses',step:4,progress:70,title:'Choisissez les adresses',text:'Sélectionnez l’adresse de livraison et l’adresse de facturation.',cta:'Voir les adresses',target:'customerfields'};
+ if(!$('cartchip').classList.contains('on'))return {key:'key',step:4,progress:78,title:'Activez l’accès aux paniers',text:'Collez la clé Webservice dédiée aux paniers, puis vérifiez-la.',cta:'Saisir la clé',target:'cartconfig'};
+ if(!cartTicket)return {key:'prepare',step:4,progress:86,title:'Préparez le panier',text:'Dernière vérification du client, des produits et des stocks.',cta:'Aller à la préparation',target:'preparecart'};
+ return {key:'create',step:4,progress:94,title:'Créez le panier',text:'Relisez le récapitulatif, puis créez le panier dans PrestaShop.',cta:'Voir le récapitulatif',target:'cartconfirmation'};
+}
+let guideKey='',guideTarget=null,guidePick=false;
+function paintGuide(state){
+ $('guidetitle').textContent=state.title;$('guidetext').textContent=state.text;
+ $('guidecta').hidden=!state.cta;if(state.cta)$('guidectalabel').textContent=state.cta;
+ $('guide').classList.toggle('busy',Boolean(state.busy));$('guide').classList.toggle('finished',Boolean(state.finished));
+}
+function updateGuide(){
+ const state=guideState();guideTarget=state.target||null;guidePick=Boolean(state.pick);
+ [...$('track').children].forEach((li,i)=>{li.classList.toggle('done',i+1<state.step);li.classList.toggle('active',i+1===state.step);});
+ $('guidebar').style.width=state.progress+'%';
+ const sections=['importsection','results','clientsection','cartsection'].map($),current=guideTarget?$(guideTarget).closest('section'):null;
+ sections.forEach((section,i)=>{section.classList.toggle('current',section===current&&!state.finished);section.classList.toggle('done',section!==current&&i+1<state.step||Boolean(state.finished));});
+ const signature=state.key+'|'+state.text;if(signature===guideKey)return;
+ const first=!guideKey;guideKey=signature;
+ if(first||calm()){paintGuide(state);return;}
+ $('guide').classList.add('swap');setTimeout(()=>{paintGuide(state);$('guide').classList.remove('swap');},230);
+}
+function scheduleGuide(){if(guideTimer)return;guideTimer=setTimeout(()=>{guideTimer=0;updateGuide();},40);}
+$('guidecta').addEventListener('click',()=>{
+ if(!guideTarget)return;
+ const target=$(guideTarget);if(target.tagName==='DETAILS')target.open=true;
+ target.scrollIntoView({behavior:calm()?'auto':'smooth',block:'center'});
+ target.classList.remove('spot');void target.offsetWidth;target.classList.add('spot');setTimeout(()=>target.classList.remove('spot'),1600);
+ if(guidePick)$('file').click();
+ else if(target.matches('input,button,select'))target.focus({preventScroll:true});
+ else if(target.id==='cartconfig')$('cartkey').focus({preventScroll:true});
+});
+new MutationObserver(scheduleGuide).observe(document.querySelector('main'),{subtree:true,childList:true,attributes:true,attributeFilter:['hidden','class','open']});
+for(const type of ['input','change','click'])document.addEventListener(type,scheduleGuide,true);
+updateGuide();
+
+// ——— Animations ———
+function countUp(element,target,format=value=>String(Math.round(value))){
+ cancelAnimationFrame(element.countFrame);clearTimeout(element.countTimer);
+ if(calm()||document.hidden){element.textContent=format(target);return;}
+ const start=performance.now(),duration=800;
+ const tick=now=>{const t=Math.min(1,(now-start)/duration);element.textContent=format(target*(1-Math.pow(1-t,3)));if(t<1)element.countFrame=requestAnimationFrame(tick);};
+ element.countFrame=requestAnimationFrame(tick);
+ element.countTimer=setTimeout(()=>{cancelAnimationFrame(element.countFrame);element.textContent=format(target);},duration+120);
+}
+// Petite gerbe de confettis aux couleurs FullMoon, partant de l'élément indiqué.
+function celebrate(origin,count){
+ if(calm())return;
+ const box=origin.getBoundingClientRect(),burst=document.createElement('div');burst.className='burst';
+ burst.style.transform=`translate(${box.left+box.width/2}px,${box.top+box.height/2}px)`;
+ const colors=['#d62844','#ff6b84','#1c1c20','#2f9e5b','#ffffff','#f3c15b'];
+ for(let i=0;i<count;i++){
+  const piece=document.createElement('i'),angle=Math.random()*Math.PI*2,distance=90+Math.random()*(count>30?320:140);
+  piece.style.setProperty('--x',Math.cos(angle)*distance+'px');piece.style.setProperty('--y',Math.sin(angle)*distance*0.8+(count>30?140:50)+'px');
+  piece.style.setProperty('--r',(Math.random()*900-450)+'deg');piece.style.setProperty('--c',colors[i%colors.length]);
+  piece.style.setProperty('--w',5+Math.random()*6+'px');piece.style.setProperty('--h',7+Math.random()*9+'px');piece.style.setProperty('--d',1+Math.random()*0.8+'s');
+  burst.append(piece);
+ }
+ document.body.append(burst);setTimeout(()=>burst.remove(),2100);
+}
+// En-tête qui se resserre au défilement, halo qui suit la souris dans le bandeau d'accueil, cartes qui apparaissent au défilement.
+let scrollFrame=0;
+addEventListener('scroll',()=>{if(scrollFrame)return;scrollFrame=requestAnimationFrame(()=>{scrollFrame=0;document.body.classList.toggle('scrolled',scrollY>30);});},{passive:true});
+$('hero').addEventListener('pointermove',event=>{const box=$('hero').getBoundingClientRect();$('hero').style.setProperty('--mx',event.clientX-box.left+'px');$('hero').style.setProperty('--my',event.clientY-box.top+'px');});
+if('IntersectionObserver' in window&&!calm()){
+ const reveal=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){entry.target.classList.add('in');reveal.unobserve(entry.target);}},{rootMargin:'0px 0px -8% 0px'});
+ for(const card of document.querySelectorAll('main>.card'))if(card.getBoundingClientRect().top>innerHeight){card.classList.add('will-reveal');reveal.observe(card);}
+ setTimeout(()=>document.querySelectorAll('.will-reveal:not(.in)').forEach(card=>{if(card.getBoundingClientRect().top<innerHeight)card.classList.add('in');}),1200);
+}
