@@ -16,6 +16,9 @@ paniers/
 *.csv
 *.xlsx
 *.xls
+*.pdf
+# Synthetic, fictitious PDF fixtures only
+!tests/fixtures/*.pdf
 *.log
 # Local environments and binaries
 .venv/
