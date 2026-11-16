@@ -43,6 +43,23 @@ class CustomerMatchTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await app.customer_match({'shop':1,'email':'buyer%[@example.test'})
 
+class DirectoryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_directory_includes_email_for_search_but_never_secret(self):
+        page = [dict(id='7', firstname='Ana', lastname='Test', company='Exemple SARL',
+                     email='ana@example.test', secure_key='never-return-this'),
+                dict(id='3', firstname='Bob', lastname='Test', company='', email=None)]
+        call = AsyncMock(return_value=page)
+        with patch.object(app, 'mcp_session', session), patch.object(app, 'call', call):
+            result = await app.customer_directory({'shop': 1})
+        args = call.call_args.args[2]
+        self.assertIn('email', args['fields'])
+        self.assertNotIn('secure_key', args['fields'])
+        self.assertEqual(args['filters'], {'id_shop': '1', 'active': '1', 'deleted': '0'})
+        by_id = {c['id']: c for c in result['customers']}
+        self.assertEqual(by_id['7']['email'], 'ana@example.test')
+        self.assertEqual(by_id['3']['email'], '')
+        self.assertTrue(all('secure_key' not in c for c in result['customers']))
+
 class HintTests(unittest.TestCase):
     def test_buyer_label_required(self):
         self.assertIsNone(customer_hint('Fournisseur : Test\nEmail : supplier@example.test')['email'])

@@ -96,6 +96,12 @@ async function customerAddresses(){
  for(const id of ['cartdelivery','cartbilling'])$(id).replaceChildren(new Option('Choisir une adresse',''),...result.addresses.map(a=>new Option(addressLabel(a),a.id)));
  $('customerfields').hidden=false;
  if(!result.addresses.length)throw Error('Ce client n’a pas d’adresse utilisable. Ajoutez son adresse dans PrestaShop.');
+ // Une seule adresse : elle est choisie d'office pour la livraison et la facturation (modifiable, et reprise dans le récapitulatif).
+ if(result.addresses.length===1){
+  for(const id of ['cartdelivery','cartbilling'])$(id).value=String(result.addresses[0].id);
+  cartMessage('Client trouvé. Sa seule adresse est sélectionnée pour la livraison et la facturation : vérifiez-la.');
+  return;
+ }
  cartMessage('Client trouvé. Sélectionnez les adresses de livraison et de facturation.');
 }
 $('findcustomer').addEventListener('click',()=>cartAction(async()=>{
@@ -140,67 +146,181 @@ $('createcart').addEventListener('click',()=>cartAction(async()=>{
  finally{await loadCartHistory();}
 }));
 
-let directoryClients=[],directoryVersion=0,contactVersion=0;
-function clearContact(){contactVersion++;$('clientcontact').hidden=true;$('clientemail').textContent='';$('clientaddresses').replaceChildren();}
-function showDirectory(){
- clearContact();
- const term=$('clientfilter').value.trim().toLocaleLowerCase('fr-FR');
- const matches=directoryClients.filter(c=>[c.id,c.firstname,c.lastname,c.company].join(' ').toLocaleLowerCase('fr-FR').includes(term));
- $('clientdirectory').replaceChildren(new Option(matches.length?'Choisir un client':'Aucun client correspondant',''),...matches.map(c=>new Option([c.company,[c.firstname,c.lastname].filter(Boolean).join(' '),`#${c.id}`].filter(Boolean).join(' · '),c.id)));
- $('clientinfo').textContent='';
- $('directorystatus').textContent=`${matches.length} client(s) affiché(s) sur ${directoryClients.length} chargé(s).`;
+
+// ——— Trouver un client : recherche unique, en consultation seule ———
+// Le répertoire (e-mail compris) reste en mémoire dans la page. Seuls les numéros
+// des derniers clients consultés sont mémorisés dans le navigateur.
+let clients=[],clientsShop='',clientsCheckedAt='',clientsVersion=0,cardVersion=0,activeIndex=-1,currentResults=[],shopTimer=0;
+const RECENT_KEY='fullmoon-recent-clients',MAX_RESULTS=8;
+const WEBMAIL=/^(gmail|googlemail|hotmail|outlook|live|msn|yahoo|ymail|icloud|me|mac|orange|wanadoo|free|sfr|neuf|laposte|bbox|aol|gmx|proton|protonmail)\./;
+const fold=value=>String(value??'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLocaleLowerCase('fr-FR').trim();
+const personName=c=>[c.firstname,c.lastname].filter(Boolean).join(' ');
+const clientLabel=c=>[c.company,personName(c)].filter(Boolean).join(' · ')||'Client sans nom';
+function recentIds(){
+ try{const all=JSON.parse(localStorage.getItem(RECENT_KEY)||'{}');const list=all&&all[$('shop').value];return Array.isArray(list)?list.map(String):[];}catch{return [];}
 }
-$('loadclients').addEventListener('click',async()=>{
- const version=++directoryVersion,shop=$('shop').value;clearContact();
- $('loadclients').disabled=true;$('clientdirectory').disabled=true;$('clientfilter').disabled=true;
- $('clientinfo').textContent='';$('directorystatus').textContent='Chargement des clients actifs via le MCP…';
+function rememberClient(id){
+ try{const all=JSON.parse(localStorage.getItem(RECENT_KEY)||'{}')||{};const shop=$('shop').value;const list=Array.isArray(all[shop])?all[shop].map(String):[];
+  all[shop]=[String(id),...list.filter(x=>x!==String(id))].slice(0,6);localStorage.setItem(RECENT_KEY,JSON.stringify(all));}catch{}
+}
+// Classement : e-mail ou numéro exact, puis e-mail qui commence par la saisie, puis qui la contient, puis noms et entreprises.
+function searchClients(raw){
+ const term=fold(raw);if(!term)return [];
+ const tokens=term.split(/\s+/),found=[];
+ for(const c of clients){
+  const email=fold(c.email),names=fold([c.company,c.firstname,c.lastname].join(' ')),id=String(c.id);
+  let score=-1;
+  if(id===term||(email&&email===term))score=0;
+  else if(email.startsWith(term))score=1;
+  else if(email.includes(term))score=2;
+  else if(names.split(/\s+/).some(word=>word.startsWith(term)))score=3;
+  else if(tokens.every(t=>`${email} ${names} ${id}`.includes(t)))score=4;
+  if(score>=0)found.push({score,client:c});
+ }
+ return found.sort((a,b)=>a.score-b.score||fold(a.client.email).localeCompare(fold(b.client.email))||Number(a.client.id)-Number(b.client.id));
+}
+function highlight(element,text,raw){
+ const term=raw.trim().toLocaleLowerCase('fr-FR'),at=term?text.toLocaleLowerCase('fr-FR').indexOf(term):-1;
+ if(at<0){element.textContent=text;return;}
+ const mark=document.createElement('mark');mark.textContent=text.slice(at,at+term.length);
+ element.replaceChildren(text.slice(0,at),mark,text.slice(at+term.length));
+}
+function listItem(text,className){const li=document.createElement('li');li.className=className;li.textContent=text;return li;}
+function setActive(index){
+ activeIndex=index;
+ [...$('clientresults').querySelectorAll('li[role=option]')].forEach((li,i)=>{li.classList.toggle('active',i===index);li.setAttribute('aria-selected',String(i===index));if(i===index)li.scrollIntoView({block:'nearest'});});
+ $('clientsearch').setAttribute('aria-activedescendant',index>=0?'clientopt'+index:'');
+}
+function hideResults(){$('clientresults').hidden=true;$('clientsearch').setAttribute('aria-expanded','false');}
+function renderResults(){
+ const raw=$('clientsearch').value,list=$('clientresults');
+ list.replaceChildren();activeIndex=-1;currentResults=[];
+ if(!raw.trim()){hideResults();return;}
+ const found=searchClients(raw);currentResults=found.slice(0,MAX_RESULTS);
+ currentResults.forEach(({client},i)=>{
+  const li=document.createElement('li');li.id='clientopt'+i;li.setAttribute('role','option');li.setAttribute('aria-selected','false');
+  const button=document.createElement('button');button.type='button';button.className='resultbtn';button.tabIndex=-1;
+  const email=document.createElement('strong'),detail=document.createElement('span');
+  highlight(email,client.email||'E-mail non renseigné',raw);highlight(detail,`${clientLabel(client)} · n° ${client.id}`,raw);
+  button.append(email,detail);button.addEventListener('mousedown',event=>event.preventDefault());button.addEventListener('click',()=>openClient(client.id));
+  li.append(button);list.append(li);
+ });
+ if(!found.length){
+  if(!clients.length)list.append(listItem(raw.includes('@')?'Répertoire en cours de chargement. Appuyez sur Entrée pour chercher cet e-mail exact.':'Répertoire en cours de chargement…','empty'));
+  else list.append(listItem('Aucun client actif ne correspond. Essayez une autre partie de l’e-mail ou le nom.','empty'));
+ }else if(found.length>MAX_RESULTS)list.append(listItem(`${found.length-MAX_RESULTS} autre(s) résultat(s) : précisez la recherche.`,'more'));
+ if(currentResults.length===1||currentResults[0]?.score===0)setActive(0);
+ list.hidden=false;$('clientsearch').setAttribute('aria-expanded','true');
+}
+function updateClientStatus(){
+ if(!clients.length)return;
+ $('clientstatus').textContent=`${clients.length} clients actifs · boutique ${clientsShop} · actualisé à ${new Date(clientsCheckedAt).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}`;
+}
+async function loadClients(){
+ if(!token)return;
+ const version=++clientsVersion,shop=$('shop').value;
+ $('clientrefresh').disabled=true;$('clientstatus').textContent='Chargement du répertoire clients via le MCP… Vous pouvez déjà taper.';
  try{
-  const result=await api('/customers/list',{shop});if(version!==directoryVersion)return;
-  directoryClients=result.customers;$('clientfilter').value='';showDirectory();
-  $('clientdirectory').disabled=false;$('clientfilter').disabled=false;
-  $('directorystatus').textContent+=` Actualisé le ${new Date(result.checked_at).toLocaleString('fr-FR')}.`;
- }catch(error){if(version===directoryVersion){directoryClients=[];$('clientdirectory').replaceChildren(new Option('Chargement indisponible',''));$('directorystatus').textContent=error.message;}}
- finally{if(version===directoryVersion)$('loadclients').disabled=false;}
-});
-$('clientfilter').addEventListener('input',showDirectory);
-$('clientdirectory').addEventListener('change',async()=>{
- clearContact();const version=contactVersion,customer=$('clientdirectory').value,shop=$('shop').value;
- if(!customer){$('clientinfo').textContent='';return;}
- $('clientinfo').textContent='Lecture des coordonnées via le MCP…';
+  const result=await api('/customers/list',{shop});if(version!==clientsVersion)return;
+  clients=result.customers;clientsShop=shop;clientsCheckedAt=result.checked_at;
+  updateClientStatus();renderRecent();if($('clientsearch').value.trim()&&document.activeElement===$('clientsearch'))renderResults();
+ }catch(error){if(version===clientsVersion){clients=[];$('clientstatus').textContent='Répertoire indisponible : '+error.message+' Cliquez sur « Actualiser » pour réessayer.';}}
+ finally{if(version===clientsVersion)$('clientrefresh').disabled=false;}
+}
+function renderRecent(){
+ const box=$('clientrecent');box.replaceChildren();
+ const items=recentIds().map(id=>clients.find(c=>String(c.id)===id)).filter(Boolean);
+ if(!items.length){box.hidden=true;return;}
+ const label=document.createElement('span');label.textContent='Récemment consultés';box.append(label);
+ for(const c of items){
+  const chip=document.createElement('button');chip.type='button';chip.className='recentchip';chip.textContent=c.email||clientLabel(c);chip.title=`${clientLabel(c)} · n° ${c.id}`;
+  chip.addEventListener('click',()=>openClient(c.id));box.append(chip);
+ }
+ box.hidden=false;
+}
+async function copyText(text,button){
+ try{await navigator.clipboard.writeText(text);}
+ catch{const area=document.createElement('textarea');area.value=text;area.style.cssText='position:fixed;opacity:0';document.body.append(area);area.select();document.execCommand('copy');area.remove();}
+ button.textContent='Copié ✓';button.classList.add('done');
+ clearTimeout(button.copyTimer);button.copyTimer=setTimeout(()=>{button.textContent='Copier';button.classList.remove('done');},1600);
+}
+function copyButton(text){const button=document.createElement('button');button.type='button';button.className='copy';button.textContent='Copier';button.addEventListener('click',()=>copyText(text,button));return button;}
+// Le module panier reprend l'e-mail de la fiche ; son ancienne sélection est effacée pour éviter tout mélange de clients.
+function linkCart(email){
+ if(!email||$('customersearch').value===email)return;
+ $('customersearch').value=email;resetCart();$('customerfields').hidden=true;$('cartcustomer').replaceChildren();
+}
+function unlinkCart(){$('customersearch').value='';resetCart();$('customerfields').hidden=true;$('cartcustomer').replaceChildren();}
+function closeCard(){cardVersion++;$('clientcard').hidden=true;$('cardaddresses').replaceChildren();}
+async function openClient(id){
+ const version=++cardVersion,shop=$('shop').value,known=clients.find(c=>String(c.id)===String(id));
+ hideResults();$('clientcard').hidden=false;$('cardid').textContent=id;
+ $('cardname').textContent=known?clientLabel(known):'Client n° '+id;$('cardemail').textContent=known?.email||'…';$('cardemailcopy').hidden=!known?.email;
+ $('cardaddresses').replaceChildren();$('cardstatus').textContent='Lecture des coordonnées via le MCP…';
  try{
-  const data=await api('/customers/contact',{shop,customer});if(version!==contactVersion)return;
-  $('clientinfo').textContent=`Client #${data.customer.id} — ${[data.customer.company,data.customer.firstname,data.customer.lastname].filter(Boolean).join(' · ')}`;
-  $('clientemail').textContent='E-mail : '+(data.customer.email||'Non renseigné');
-  if(!data.addresses.length){$('clientaddresses').textContent='Aucune adresse enregistrée.';}
+  const data=await api('/customers/contact',{shop,customer:id});if(version!==cardVersion)return;
+  const c=data.customer;
+  $('cardid').textContent=c.id;$('cardname').textContent=clientLabel(c);$('cardemail').textContent=c.email||'Non renseigné';$('cardemailcopy').hidden=!c.email;
   for(const address of data.addresses){
    const article=document.createElement('article');article.className='contactaddress';
-   const title=document.createElement('strong');title.textContent=address.alias||`Adresse #${address.id}`;article.append(title);
-   const details=document.createElement('p');details.style.whiteSpace='pre-line';
-   details.textContent=[address.company,[address.firstname,address.lastname].filter(Boolean).join(' '),address.address1,address.address2,[address.postcode,address.city].filter(Boolean).join(' '),address.country].filter(Boolean).join('\n');
-   article.append(details);$('clientaddresses').append(article);
+   const title=document.createElement('strong');title.textContent=address.alias||`Adresse n° ${address.id}`;
+   const lines=[address.company,[address.firstname,address.lastname].filter(Boolean).join(' '),address.address1,address.address2,[address.postcode,address.city].filter(Boolean).join(' '),address.country].filter(Boolean);
+   const details=document.createElement('p');details.style.whiteSpace='pre-line';details.textContent=lines.join('\n');
+   article.append(title,details,copyButton(lines.join('\n')));$('cardaddresses').append(article);
   }
-  $('clientcontact').hidden=false;
- }catch(error){if(version===contactVersion)$('clientinfo').textContent=error.message;}
+  $('cardstatus').textContent=data.addresses.length?'':'Aucune adresse enregistrée pour ce client.';
+  rememberClient(c.id);renderRecent();linkCart(c.email);
+ }catch(error){if(version===cardVersion)$('cardstatus').textContent=error.message;}
+}
+async function exactLookup(email){
+ $('clientstatus').textContent='Recherche de l’e-mail exact via le MCP…';
+ try{
+  const result=await api('/customers/match',{shop:$('shop').value,email});
+  if(result.status==='unique')await openClient(result.customers[0].id);
+  else $('clientstatus').textContent=result.status==='ambiguous'?'Plusieurs clients partagent cet e-mail. Attendez la fin du chargement pour choisir.':'Aucun client actif avec cet e-mail exact.';
+ }catch(error){$('clientstatus').textContent=error.message;}
+ finally{updateClientStatus();}
+}
+$('clientsearch').addEventListener('input',renderResults);
+$('clientsearch').addEventListener('focus',()=>{if($('clientsearch').value.trim())renderResults();});
+$('clientsearch').addEventListener('blur',()=>setTimeout(hideResults,150));
+$('clientsearch').addEventListener('keydown',event=>{
+ const count=currentResults.length,value=$('clientsearch').value.trim();
+ if(event.key==='ArrowDown'&&count){event.preventDefault();if($('clientresults').hidden)renderResults();setActive((activeIndex+1)%count);}
+ else if(event.key==='ArrowUp'&&count){event.preventDefault();setActive((activeIndex-1+count)%count);}
+ else if(event.key==='Enter'){
+  event.preventDefault();
+  if(activeIndex>=0&&currentResults[activeIndex])openClient(currentResults[activeIndex].client.id);
+  else if(!clients.length&&value.includes('@'))exactLookup(value);
+ }
+ else if(event.key==='Escape'){if(!$('clientresults').hidden)hideResults();else{$('clientsearch').value='';renderResults();}}
 });
+$('clientrefresh').addEventListener('click',loadClients);
+$('cardclose').addEventListener('click',()=>{closeCard();$('clientsearch').focus();});
+$('cardemailcopy').addEventListener('click',()=>copyText($('cardemail').textContent,$('cardemailcopy')));
 $('shop').addEventListener('input',()=>{
- clearContact();directoryVersion++;directoryClients=[];$('clientfilter').value='';$('clientfilter').disabled=true;
- $('clientdirectory').replaceChildren(new Option('Rechargez le répertoire de cette boutique',''));$('clientdirectory').disabled=true;
- $('loadclients').disabled=false;$('clientinfo').textContent='';$('directorystatus').textContent='Boutique modifiée. Rechargez les clients.';
+ clientsVersion++;clients=[];closeCard();hideResults();$('clientrecent').hidden=true;
+ $('clientstatus').textContent='Boutique modifiée : rechargement du répertoire…';
+ clearTimeout(shopTimer);shopTimer=setTimeout(()=>{if(Number($('shop').value)>0)loadClients();},600);
 });
 
-
+// Commande PDF : l'e-mail « Acheteur » ouvre directement la fiche si un seul client actif correspond exactement.
 async function detectPdfCustomer(hint,version){
- clearContact();directoryVersion++;const directoryRequest=directoryVersion;
- $('loadclients').disabled=false;
- directoryClients=[];$('clientdirectory').replaceChildren(new Option('Client PDF à identifier',''));$('clientdirectory').disabled=true;$('clientfilter').value='';$('clientfilter').disabled=true;
- $('clientinfo').textContent='';$('pdfclientstatus').textContent='Recherche du client acheteur…';
- if(!hint||!hint.email){$('pdfclientstatus').textContent=hint?.reason||'E-mail acheteur absent. Sélectionnez le client manuellement.';return;}
+ $('pdfclientstatus').textContent='Recherche du client acheteur…';
+ if(!hint||!hint.email){closeCard();unlinkCart();$('pdfclientstatus').textContent=(hint?.reason||'E-mail acheteur absent du PDF.')+' Recherchez le client dans « Trouver un client », en haut de la page.';return;}
  try{
   const result=await api('/customers/match',{shop:$('shop').value,email:hint.email});
-  if(version!==importVersion||directoryRequest!==directoryVersion)return;
-  if(result.status!=='unique'){$('pdfclientstatus').textContent='Client absent ou correspondances multiples pour '+hint.email+'. Vérifiez le client manuellement.';return;}
-  directoryClients=result.customers;showDirectory();$('clientdirectory').disabled=false;$('clientfilter').disabled=false;
-  $('clientdirectory').value=String(result.customers[0].id);$('clientdirectory').dispatchEvent(new Event('change'));
-  $('pdfclientstatus').textContent='Client identifié par correspondance exacte de l’e-mail acheteur : '+hint.email+'. Sa fiche est affichée en consultation. Vérifiez son identité et ses adresses.';
- }catch(error){if(version===importVersion&&directoryRequest===directoryVersion)$('pdfclientstatus').textContent='Identification automatique indisponible. Sélectionnez le client manuellement. '+error.message;}
+  if(version!==importVersion)return;
+  if(result.status==='unique'){
+   $('clientsearch').value=hint.email;await openClient(result.customers[0].id);
+   $('pdfclientstatus').textContent='Client identifié par l’e-mail acheteur exact '+hint.email+'. Sa fiche est ouverte en haut de la page : vérifiez son identité et ses adresses.';
+   return;
+  }
+  const domain=hint.email.split('@')[1]||'';
+  $('clientsearch').value=domain&&!WEBMAIL.test(domain)?'@'+domain:hint.email;closeCard();unlinkCart();
+  $('pdfclientstatus').textContent=(result.status==='ambiguous'?'Plusieurs clients actifs ont':'Aucun client actif n’a')+' l’e-mail acheteur '+hint.email+'. La recherche en haut de la page est pré-remplie'+(domain&&!WEBMAIL.test(domain)?' avec son domaine':'')+' : choisissez le client.';
+  $('clientsection').scrollIntoView({behavior:'smooth',block:'start'});$('clientsearch').focus();
+ }catch(error){if(version===importVersion)$('pdfclientstatus').textContent='Identification automatique indisponible. Recherchez le client en haut de la page. '+error.message;}
 }
+
+if(token)loadClients();else $('clientstatus').textContent='Session locale absente : le répertoire clients ne peut pas être chargé.';
