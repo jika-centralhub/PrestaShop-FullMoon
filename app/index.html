@@ -77,7 +77,7 @@
  <div id="pdfreview" hidden>
   <h3>Vérifier l’extraction du PDF</h3>
   <p id="pdfnotice" class="hint"></p>
-  <p class="hint">« Retirer » écarte une ligne extraite par erreur ou un article à ne pas commander.</p>
+  <p class="hint">Corrigez une quantité directement dans le tableau. « Retirer » écarte une ligne extraite par erreur ou un article à ne pas commander.</p>
   <p id="pdfclientstatus" role="status"></p>
   <div class="tablewrap"><table><thead><tr><th>Référence fournisseur</th><th>Quantité</th><th>Produit</th><th>Référence interne</th><th>EAN</th><th>Page</th><th><span class="visually-hidden">Action</span></th></tr></thead><tbody id="pdfrows"></tbody></table></div>
   <label class="reviewcheck"><input id="pdfconfirmed" type="checkbox">J’ai vérifié les références et les quantités extraites du PDF.</label>
@@ -104,7 +104,7 @@
  <div class="tablewrap"><table class="results"><thead><tr><th>Ligne / référence</th><th>Produit</th><th>Demandé</th><th>Stock</th><th>Retenu</th><th>PU HT</th><th>Total HT</th><th>Contrôle</th><th><span class="visually-hidden">Action</span></th></tr></thead><tbody id="rows"></tbody></table></div>
  <div class="actions"><button id="removeerrors" class="ghost" type="button" hidden>Retirer les lignes en erreur</button></div>
  <p id="removedcount" class="hint" role="status"></p>
- <p class="hint">Retirez une ligne (produit inactif, référence inconnue, article à ne pas livrer) : elle n’est plus envoyée au contrôle ni au panier, et le contrôle est relancé. « Rétablir » la remet dans la commande. Stock constaté à l’heure du contrôle. Relancez le contrôle pour actualiser les quantités. Cette validation locale ne réserve aucun stock et ne crée aucune commande dans PrestaShop.</p>
+ <p class="hint">Modifiez une quantité dans la colonne « Demandé » (Entrée pour valider, Échap pour annuler) : elle remplace celle du fichier et le contrôle est relancé. Retirez une ligne (produit inactif, référence inconnue, article à ne pas livrer) : elle n’est plus envoyée au contrôle ni au panier. « Rétablir » la remet dans la commande. Stock constaté à l’heure du contrôle. Relancez le contrôle pour actualiser les quantités. Cette validation locale ne réserve aucun stock et ne crée aucune commande dans PrestaShop.</p>
 </section>
 
 <section class="card" id="clientsection">

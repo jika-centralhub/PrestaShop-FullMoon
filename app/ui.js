@@ -7,6 +7,8 @@ let sheets=[],pdfReviewRequired=false,importVersion=0,checking=false,cartCreated
 // Lignes retirées de la commande, par numéro de ligne du fichier (1 = première ligne de la feuille).
 // Vidé à chaque nouveau fichier, changement de feuille ou de ligne d'en-tête.
 const removed=new Set();
+// Quantités corrigées à la main, par numéro de ligne. Le fichier d'origine n'est pas modifié.
+const edited=new Map();
 const currency=value=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(Number(value));
 function message(text,error=false){$('message').textContent=text;$('message').className='notice'+(error?' bad':'');}
 function setStep(){scheduleGuide();}
@@ -19,7 +21,7 @@ function options(select,headers,pattern){select.replaceChildren();headers.forEac
 function mapping(){
  const sheet=sheets[Number($('sheet').value)];if(!sheet)return;
  const index=Number($('header').value)-1;const headers=sheet.rows[index]||[];
- options($('reference'),headers,/réf|ref|sku|code article/i);options($('quantity'),headers,/quant|qty|qté|qte|nb/i);options($('price'),headers,/prix|price|tarif/i);removed.clear();invalidate();
+ options($('reference'),headers,/réf|ref|sku|code article/i);options($('quantity'),headers,/quant|qty|qté|qte|nb/i);options($('price'),headers,/prix|price|tarif/i);removed.clear();edited.clear();invalidate();
 }
 function lineButton(line){
  const button=document.createElement('button');button.type='button';button.className='copy linebtn';
@@ -27,12 +29,28 @@ function lineButton(line){
  button.title=off?'Remettre cette ligne dans la commande':'Retirer cette ligne de la commande';
  button.addEventListener('click',()=>toggleLines([line],!off));return button;
 }
+// Champ de quantité modifiable : la nouvelle valeur remplace celle du fichier pour cette ligne.
+function quantityInput(line,value,original){
+ const input=document.createElement('input');input.type='text';input.inputMode='numeric';input.className='qtyedit';input.value=value;
+ input.setAttribute('aria-label',`Quantité de la ligne ${line}`);
+ if(edited.has(line)){input.classList.add('changed');input.title=`Quantité du fichier : ${original||'vide'}`;}
+ input.addEventListener('keydown',event=>{if(event.key==='Enter')input.blur();else if(event.key==='Escape'){input.value=value;input.blur();}});
+ input.addEventListener('change',()=>setQuantity(line,input.value,original,input));
+ return input;
+}
+async function setQuantity(line,raw,original,input){
+ if(checking)return;
+ const value=raw.replace(/\s/g,'');
+ if(!/^\d{1,7}$/.test(value)||Number(value)<1){message(`Ligne ${line} : saisissez une quantité entière d’au moins 1. Pour écarter l’article, utilisez « Retirer ».`,true);input.value=edited.get(line)??original;return;}
+ if(String(Number(value))===String(Number(original)))edited.delete(line);else edited.set(line,String(Number(value)));
+ await refreshAfterEdit(`Quantité de la ligne ${line} : ${Number(value)}.`);
+}
 function renderPdfRows(){
  if(!pdfReviewRequired)return;
  $('pdfrows').replaceChildren();
  sheets[0].rows.slice(1).forEach((row,k)=>{
   const line=k+2,tr=document.createElement('tr');tr.classList.toggle('removed',removed.has(line));
-  for(const value of row){const td=document.createElement('td');td.textContent=value;tr.append(td);}
+  row.forEach((value,i)=>{const td=document.createElement('td');if(i===1&&!removed.has(line))td.append(quantityInput(line,edited.get(line)??value,value));else td.textContent=i===1?edited.get(line)??value:value;tr.append(td);});
   const td=document.createElement('td');td.append(lineButton(line));tr.append(td);$('pdfrows').append(tr);
  });
 }
@@ -44,10 +62,15 @@ async function toggleLines(lines,remove){
  const next=new Set(removed);for(const line of lines)remove?next.add(line):next.delete(line);
  if(!all.some(row=>!next.has(row.line))){message('Impossible de retirer toutes les lignes : la commande doit garder au moins un article.',true);return;}
  removed.clear();next.forEach(line=>removed.add(line));
- const shown=!$('results').hidden;cartCreated=false;resetCart();renderPdfRows();
  const count=all.filter(row=>removed.has(row.line)).length;
+ await refreshAfterEdit(count?`${count} ligne(s) retirée(s) de la commande.`:'Toutes les lignes sont dans la commande.');
+}
+// Après un retrait ou une quantité modifiée : le panier préparé est annulé et le contrôle relancé
+// si des résultats étaient affichés (les doublons partagent le même stock).
+async function refreshAfterEdit(note){
+ const shown=!$('results').hidden;cartCreated=false;resetCart();renderPdfRows();
  if(shown&&!(pdfReviewRequired&&!$('pdfconfirmed').checked))await run();
- else{$('results').hidden=true;message(count?`${count} ligne(s) retirée(s) de la commande.`:'Toutes les lignes sont dans la commande.');}
+ else{$('results').hidden=true;message(note);}
 }
 $('file').addEventListener('change',async()=>{
  invalidate();clearCartClient();const version=++importVersion;pdfReviewRequired=false;$('pdfreview').hidden=true;$('pdfconfirmed').checked=false;$('pdfrows').replaceChildren();$('check').disabled=true;sheets=[];dropzone.classList.remove('loaded');$('droptitle').textContent='Déposez le fichier de commande ici';$('mapping').hidden=true;$('filename').textContent='';const file=$('file').files[0];if(!file){scheduleGuide();return;}
@@ -74,7 +97,8 @@ function sheetRows(){
  const ref=Number($('reference').value),qty=Number($('quantity').value),price=Number($('price').value);
  if(ref===qty)throw Error('La référence et la quantité doivent utiliser deux colonnes distinctes.');
  const header=Number($('header').value);if(!Number.isInteger(header)||header<1)throw Error('Ligne d’en-tête invalide.');
- return sheet.rows.slice(header).map((row,i)=>({reference:(row[ref]||'').trim(),quantity:(row[qty]||'').trim(),price:(row[price]||'').trim(),line:header+i+1})).filter(row=>row.reference||row.quantity);
+ return sheet.rows.slice(header).map((row,i)=>{const line=header+i+1,original=(row[qty]||'').trim();
+  return {reference:(row[ref]||'').trim(),quantity:edited.get(line)??original,original,price:(row[price]||'').trim(),line};}).filter(row=>row.reference||row.quantity).map(({original,...row})=>row);
 }
 function payload(){
  if(pdfReviewRequired&&!$('pdfconfirmed').checked)throw Error('Vérifiez les lignes extraites du PDF puis cochez la confirmation.');
@@ -85,9 +109,10 @@ function payload(){
 }
 function display(result){
  $('rows').replaceChildren();let requested=0,accepted=0;
+ const originals=new Map();try{const sheet=sheets[Number($('sheet').value)],qty=Number($('quantity').value),header=Number($('header').value);sheet.rows.slice(header).forEach((row,i)=>originals.set(header+i+1,(row[qty]||'').trim()));}catch{}
  for(const row of result.rows){
  const tr=document.createElement('tr');tr.style.animationDelay=Math.min($('rows').children.length,24)*28+'ms';const values=[`${row.line} · ${row.reference}`,row.name||'—',row.requested,row.available??'—',row.accepted,row.unit_ht===undefined?'—':new Intl.NumberFormat('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:6}).format(Number(row.unit_ht)),row.subtotal===undefined?'—':currency(row.subtotal),row.error||(!row.accepted?'Rupture':row.missing?'Quantité réduite':'Disponible')];
- values.forEach((value,i)=>{const td=document.createElement('td');if(i===7){const pill=document.createElement('span');pill.className='pill '+(row.error||!row.accepted?'bad':row.missing?'warn':'good');pill.textContent=value;td.append(pill);}else td.textContent=value;tr.append(td);});
+ values.forEach((value,i)=>{const td=document.createElement('td');if(i===2){td.append(quantityInput(row.line,String(edited.get(row.line)??value),originals.get(row.line)));}else if(i===7){const pill=document.createElement('span');pill.className='pill '+(row.error||!row.accepted?'bad':row.missing?'warn':'good');pill.textContent=value;td.append(pill);}else td.textContent=value;tr.append(td);});
  const action=document.createElement('td');action.append(lineButton(row.line));tr.append(action);$('rows').append(tr);requested+=Number(row.requested)||0;accepted+=row.accepted;
  }
  // Lignes retirées : affichées à la fin, barrées, pour pouvoir les rétablir.
