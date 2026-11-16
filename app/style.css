@@ -206,6 +206,9 @@ table.results th:nth-child(n+3):nth-child(-n+7){text-align:right}
 tr.removed td{color:var(--muted);background:#faf9f8}
 tr.removed td:not(:last-child){text-decoration:line-through;opacity:.6}
 tr.removed .pill{text-decoration:none;background:#eeecee;color:var(--muted)}
+input.qtyedit{width:84px;padding:6px 9px;border:1.5px solid #d6d3d7;border-radius:9px;font:inherit;font-variant-numeric:tabular-nums;text-align:right;background:#fff;color:var(--ink)}
+input.qtyedit:focus{outline:3px solid rgba(214,40,68,.25);border-color:var(--red)}
+input.qtyedit.changed{border-color:var(--amber);background:var(--amber-soft)}
 button.linebtn{padding:5px 11px;font-size:11px;white-space:nowrap}
 .pill{display:inline-block;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:700;white-space:nowrap}
 .pill.good{background:var(--green-soft)}.pill.warn{background:var(--amber-soft)}.pill.bad{background:var(--red-soft);white-space:normal}
