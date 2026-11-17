@@ -1,5 +1,7 @@
 # PrestaShop FullMoon
 
+> Branche `en-ligne` : version utilisable depuis un navigateur, à plusieurs, sans installation. Voir `EN-LIGNE.md`.
+
 Sources de l’installation locale FullMoon Distribution, transférées pour reprise sur un autre poste. Le serveur MCP expose des outils en lecture seule. L’interface locale importe Excel/CSV/PDF (voir `IMPORT-PDF.md`), consulte les stocks et les clients et affiche leurs coordonnées.
 
 ## Installation rapide sur Mac

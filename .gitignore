@@ -28,3 +28,5 @@ bin/
 __pycache__/
 *.pyc
 .DS_Store
+# Online mode, server-side registry when no PostgreSQL
+app/donnees-en-ligne/

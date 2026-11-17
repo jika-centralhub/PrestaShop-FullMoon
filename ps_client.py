@@ -38,6 +38,10 @@ class ConfigError(RuntimeError):
 def _load_env(path: str = ".env") -> dict[str, str]:
     p = Path(path)
     if not p.exists():
+        # Online mode: no .env file on the server, the keys are in its environment settings.
+        import os
+        if os.environ.get("PS_SHOP_URL") and os.environ.get("PS_API_KEY"):
+            return {k: os.environ[k] for k in ("PS_SHOP_URL", "PS_API_KEY", "PS_LANG_ID") if k in os.environ}
         raise ConfigError(
             f".env not found at {p.resolve()}.\n"
             "Required variables: PS_SHOP_URL, PS_API_KEY"

@@ -14,18 +14,33 @@ sys.path.insert(0, str(ROOT / 'vendor'))
 sys.path.append(str(PROJECT))
 import openpyxl
 import xlrd
-from carts import CartService, KeyRejected, positive, merged_rows, parse_xml
+from carts import CartService, CartWriter, KeyRejected, positive, merged_rows, parse_xml
 from pdf_import import read_pdf
 from ps_client import PSClient
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+import online
 TOKEN = secrets.token_urlsafe(32)
 PORT = 8790
 LOCK = threading.Lock()
+READS = LOCK            # local mode: one action at a time, as before
 CENT = Decimal('0.01')
 CARTS = CartService(ROOT)
+ONLINE = None           # online.Settings once started with --online
+ACCOUNTS = None
 ASSETS = {'/assets/logo-fullmoon.png': 'image/png', '/assets/fullmoon-couleur.png': 'image/png',
           '/assets/favicon.png': 'image/png', '/assets/montserrat.woff2': 'font/woff2'}
+
+
+def start_online(settings):
+    """Shared registry, administrator's cart key, user accounts. Reads may run side by side."""
+    global ONLINE, ACCOUNTS, CARTS, READS
+    database = settings.database()
+    writer = CartWriter(fixed_key=settings.cart_key) if settings.cart_key else CartWriter()
+    writer.fixed = True
+    ONLINE, ACCOUNTS = settings, online.Accounts(database)
+    CARTS = CartService(ROOT, database=database, writer=writer)
+    READS = threading.BoundedSemaphore(3)
 
 
 @asynccontextmanager
@@ -219,7 +234,7 @@ async def checked_cart(payload):
         return result, profile
 
 
-def cart_route(path, payload):
+def cart_route(path, payload, user=None):
     def run(awaitable):
         try:
             return asyncio.run(asyncio.wait_for(awaitable, timeout=240))
@@ -251,16 +266,19 @@ def cart_route(path, payload):
     if path == '/cart/prepare':
         CARTS.writer.verify_permissions(shop=positive(payload.get('shop')))
         result, profile = run(checked_cart(payload))
-        return CARTS.prepare(payload, result, profile)
+        return CARTS.prepare(payload, result, profile, user)
     if path == '/cart/create':
         ticket = str(payload.get('ticket', ''))
         previous = CARTS.existing(ticket)
         if previous:
             return previous
-        prepared = CARTS.preview(ticket)
+        prepared = CARTS.preview(ticket, user)
         CARTS.writer.verify_permissions(shop=positive(prepared['payload']['shop']))
         result, profile = run(checked_cart(prepared['payload']))
-        return {**CARTS.commit(ticket, result, profile), 'result': result}
+        created = CARTS.commit(ticket, result, profile, user)
+        if ONLINE:
+            print(f"Panier n° {created.get('cart_id')} créé par {user}.", flush=True)
+        return {**created, 'result': result}
     raise ValueError('Action panier inconnue.')
 
 
@@ -473,7 +491,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):
         pass
 
-    def respond(self,status,data,kind='application/json'):
+    def respond(self,status,data,kind='application/json',headers=()):
         if isinstance(data, bytes):
             raw, content_type = data, kind
         else:
@@ -483,26 +501,79 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type',content_type)
         self.send_header('Cache-Control','no-store')
         self.send_header('X-Content-Type-Options','nosniff')
-        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+        self.send_header('Referrer-Policy','no-referrer')
+        self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+        if ONLINE and ONLINE.https:
+            self.send_header('Strict-Transport-Security','max-age=31536000')
+        for name, value in headers:
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(raw)
 
+    # ── Online mode: who is calling? ──
+    def client_ip(self):
+        return ONLINE.client_ip(self.headers, self.client_address[0])
+
+    def session_token(self):
+        return online.cookie_value(self.headers.get('Cookie'))
+
+    def current_user(self):
+        return ACCOUNTS.session(self.session_token())
+
+    def online_refused(self, post):
+        """Return an error already sent, or None when the request may go on."""
+        if self.headers.get('Host') != ONLINE.host:
+            self.respond(403,{'error':'Hôte refusé.'}); return True
+        if not ONLINE.ip_allowed(self.client_ip()):
+            self.respond(403,{'error':'Accès réservé aux adresses autorisées.'}); return True
+        if post and self.headers.get('Origin') != ONLINE.origin:
+            self.respond(403,{'error':'Origine refusée.'}); return True
+        return None
+
+    def page(self, name):
+        text = (ROOT/name).read_text(encoding='utf-8')
+        mime = {'html':'text/html','js':'text/javascript','css':'text/css'}[name.split('.')[-1]]
+        return self.respond(200, text, mime)
+
     def do_GET(self):
-        if self.headers.get('Host') != f'127.0.0.1:{PORT}':
-            return self.respond(403,{'error':'Hôte refusé.'})
         path=urlsplit(self.path).path
+        if ONLINE:
+            if self.online_refused(False):
+                return
+        elif self.headers.get('Host') != f'127.0.0.1:{PORT}':
+            return self.respond(403,{'error':'Hôte refusé.'})
         if path in ASSETS:
             # Fixed allow-list: logos, icon and bundled font only, never a path built from the URL.
             return self.respond(200,(ROOT/'assets'/path.removeprefix('/assets/')).read_bytes(),ASSETS[path])
-        files={'/':'index.html','/ui.js':'ui.js','/style.css':'style.css'}
+        if path == '/style.css':
+            return self.page('style.css')
+        if ONLINE:
+            if path in ('/connexion', '/connexion.js'):
+                return self.page('connexion.html' if path == '/connexion' else 'connexion.js')
+            user = self.current_user()
+            if path in ('/', '/ui.js') and not user:
+                return self.respond(303, '', 'text/plain', [('Location', '/connexion')])
+            if path == '/':
+                html = (ROOT/'index.html').read_text(encoding='utf-8')
+                html = html.replace('<html lang="fr">', f'<html lang="fr" data-mode="online" data-user="{escape(user)}">', 1)
+                return self.respond(200, html, 'text/html')
+        files={'/':'index.html','/ui.js':'ui.js'}
         name=files.get(path)
         if not name:
             return self.respond(404,{'error':'Introuvable.'})
-        mime={'html':'text/html','js':'text/javascript','css':'text/css'}[name.split('.')[-1]]
-        self.respond(200,(ROOT/name).read_text(encoding='utf-8'),mime)
+        self.page(name)
 
     def do_POST(self):
-        if self.headers.get('Host') != f'127.0.0.1:{PORT}' or self.headers.get('Origin') != f'http://127.0.0.1:{PORT}' or not secrets.compare_digest(self.headers.get('X-Session',''), TOKEN):
+        user = None
+        if ONLINE:
+            if self.online_refused(True):
+                return
+            if self.path in ('/connexion', '/deconnexion'):
+                return self.sign(self.path)
+            user = self.current_user()
+            if not user:
+                return self.respond(401,{'error':'Session expirée. Reconnectez-vous.','login':True})
+        elif self.headers.get('Host') != f'127.0.0.1:{PORT}' or self.headers.get('Origin') != f'http://127.0.0.1:{PORT}' or not secrets.compare_digest(self.headers.get('X-Session',''), TOKEN):
             return self.respond(403,{'error':'Session locale non autorisée. Relancez l’outil.'})
         try:
             size=int(self.headers.get('Content-Length','0'))
@@ -512,27 +583,89 @@ class Handler(BaseHTTPRequestHandler):
             if self.path=='/import':
                 return self.respond(200,read_order_file(payload))
             if self.path in ('/customers/list', '/customers/contact', '/customers/match'):
-                with LOCK:
+                with READS:
                     action = {'/customers/list': customer_directory, '/customers/contact': customer_contact, '/customers/match': customer_match}[self.path]
                     result = asyncio.run(asyncio.wait_for(action(payload), timeout=180))
                 return self.respond(200,result)
             if self.path.startswith('/cart/'):
                 with LOCK:
-                    result = cart_route(self.path, payload)
+                    result = cart_route(self.path, payload, user)
                 return self.respond(200, result)
             if self.path != '/check':
                 return self.respond(404,{'error':'Introuvable.'})
-            with LOCK:
+            with READS:
                 result=asyncio.run(asyncio.wait_for(check(payload),timeout=180))
             self.respond(200,result)
         except KeyRejected as error:
-            # The saved cart key no longer works: forget it and tell the page to ask for a new one.
+            # Local: the saved cart key no longer works, forget it and ask for a new one.
+            # Online: the key belongs to the administrator, who must replace it on the server.
             CARTS.writer.clear()
-            self.respond(400,{'error':str(error),'key_rejected':True})
+            text = str(error) if not ONLINE else str(error).split(' Saisissez')[0] + ' Prévenez l’administrateur de l’outil : la clé se remplace dans les réglages du serveur.'
+            self.respond(400,{'error':text,'key_rejected':True,'server':bool(ONLINE)})
         except ValueError as error:
             self.respond(400,{'error':str(error)})
         except Exception:
             self.respond(503,{'error':'Contrôle interrompu. Aucune validation disponible. Vérifiez le fichier et la connexion MCP puis réessayez.'})
+
+    def sign(self, path):
+        if path == '/deconnexion':
+            ACCOUNTS.logout(self.session_token())
+            return self.respond(200, {'ok': True}, headers=[('Set-Cookie', online.session_cookie('', 0))])
+        try:
+            size = int(self.headers.get('Content-Length', '0'))
+            if size <= 0 or size > 4000:
+                raise ValueError
+            payload = json.loads(self.rfile.read(size))
+        except (ValueError, json.JSONDecodeError):
+            return self.respond(400, {'error': 'Requête invalide.'})
+        ip = self.client_ip()
+        try:
+            token = ACCOUNTS.login(payload.get('username'), payload.get('password'), payload.get('code'), ip)
+        except PermissionError as error:
+            print(f'Connexion refusée pour « {str(payload.get("username",""))[:40]} » depuis {ip}.', flush=True)
+            return self.respond(401, {'error': str(error)})
+        print(f'Connexion de {payload["username"].strip().lower()} depuis {ip}.', flush=True)
+        return self.respond(200, {'ok': True}, headers=[('Set-Cookie', online.session_cookie(token))])
+
+
+def escape(text):
+    return str(text).replace('&','&amp;').replace('"','&quot;').replace('<','&lt;').replace('>','&gt;')
+
+
+def administer(argv):
+    """Command line account management for online mode (never exposed in the page)."""
+    import getpass
+    accounts = online.Accounts(online.Settings().database())
+    if '--list-users' in argv:
+        for user in accounts.list():
+            print(f"{user['username']:<24} {'actif' if user['active'] else 'désactivé':<10} {'code 2FA' if user['totp'] else 'sans 2FA':<10} {user['created_at']}")
+        return
+    if '--disable-user' in argv:
+        name = argv[argv.index('--disable-user') + 1]
+        accounts.disable(name)
+        print(f'{name} désactivé, ses sessions sont fermées.')
+        return
+    name = argv[argv.index('--add-user') + 1]
+    password = getpass.getpass(f'Mot de passe pour {name} (12 caractères minimum, saisie masquée) : ')
+    if password != getpass.getpass('Retapez-le : '):
+        raise SystemExit('Les deux saisies diffèrent. Rien n’a été modifié.')
+    secret = accounts.add(name, password, with_totp='--totp' in argv)
+    print(f'Compte {name.strip().lower()} prêt. Ses sessions ouvertes ont été fermées.')
+    if secret:
+        print('Code à usage unique : dans l’application d’authentification du téléphone (Google Authenticator, Microsoft Authenticator…),')
+        print(f'ajoutez un compte « FullMoon » avec cette clé de configuration : {secret}')
+        print('Ne la conservez nulle part ailleurs.')
+
+
+if __name__=='__main__' and any(flag in sys.argv for flag in ('--add-user', '--disable-user', '--list-users')):
+    administer(sys.argv)
+    sys.exit(0)
+
+if __name__=='__main__' and ('--online' in sys.argv or os.environ.get('FULLMOON_MODE') == 'online'):
+    start_online(online.Settings())
+    server = ThreadingHTTPServer((ONLINE.bind, ONLINE.port), Handler)
+    print(f'FullMoon Commandes en ligne sur {ONLINE.origin} (écoute {ONLINE.bind}:{ONLINE.port}).', flush=True)
+    server.serve_forever()
 
 if __name__=='__main__':
     server=ThreadingHTTPServer(('127.0.0.1',PORT),Handler)

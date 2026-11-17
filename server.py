@@ -9,6 +9,7 @@ Each project has its own .env — run Claude Code from the project directory.
 """
 from __future__ import annotations
 
+import os
 import sys
 import contextlib
 import io
@@ -50,7 +51,7 @@ def _ps() -> PSClient:
     global _client
     if _client is None:
         env_path = Path(__file__).resolve().parent / ".env"
-        if not env_path.exists():
+        if not env_path.exists() and not (os.environ.get("PS_SHOP_URL") and os.environ.get("PS_API_KEY")):
             raise ConfigError(f"No .env in {Path.cwd()}\n\n{_ENV_HINT}")
         _client = PSClient.from_env(str(env_path))
     return _client

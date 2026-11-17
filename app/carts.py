@@ -38,11 +38,22 @@ class KeyRejected(ValueError):
     """PrestaShop refuses the cart key (401/403) or its permissions no longer match."""
 
 
+SERVER_KEY = ('En ligne, la clé des paniers est réglée sur le serveur par l’administrateur '
+    '(variable PS_CART_KEY). Elle ne se saisit pas dans la page.')
+
+
 class CartWriter:
-    def __init__(self, store=None):
+    def __init__(self, store=None, fixed_key=None):
         # store: private file (0600, folder 0700) keeping the key between launches.
+        # fixed_key: online mode, key set by the administrator in the server settings.
         self.store = Path(store) if store else None
+        self.fixed = bool(fixed_key)
         self._key = None
+        if fixed_key:
+            if not re.fullmatch('[A-Za-z0-9]{32}', fixed_key):
+                raise SystemExit('PS_CART_KEY doit être une clé Webservice PrestaShop de 32 caractères.')
+            self._key = fixed_key
+            return
         self.load()
 
     def load(self):
@@ -76,8 +87,8 @@ class CartWriter:
             self.verify_permissions(shop=shop)
         except KeyRejected as error:
             self.clear()
-            return {'ready': False, 'saved': False, 'rejected': str(error)}
-        return {'ready': True, 'saved': bool(self.store)}
+            return {'ready': False, 'saved': False, 'rejected': str(error), 'server': self.fixed}
+        return {'ready': True, 'saved': bool(self.store), 'server': self.fixed}
 
     def request(self, method, path, *, body=None, key=None, shop=None):
         allowed = (method == 'GET' and (path == '' or re.fullmatch(r'/carts/[1-9][0-9]*', path))) or (method == 'POST' and path == '/carts')
@@ -115,6 +126,8 @@ class CartWriter:
                 raise KeyRejected('Clé trop permissive. Autorisez uniquement GET et POST sur carts, sans autre écriture. Aucun panier n’a été créé.')
 
     def configure(self, key, shop):
+        if self.fixed:
+            raise ValueError(SERVER_KEY)
         if not isinstance(key, str) or not re.fullmatch('[A-Za-z0-9]{32}', key):
             raise ValueError('Clé Webservice PrestaShop attendue (32 caractères). Ne saisissez pas de clé OpenAI.')
         self.verify_permissions(key, shop)
@@ -123,6 +136,9 @@ class CartWriter:
         return {'ready': True, 'saved': bool(self.store)}
 
     def clear(self):
+        if self.fixed:
+            # The server key is the administrator's: keep it, PrestaShop will keep refusing it until it is replaced.
+            return {'ready': False, 'server': True}
         self._key = None
         if self.store:
             self.store.unlink(missing_ok=True)
@@ -182,31 +198,36 @@ def verify_cart(root, expected, cart_id):
 
 
 class CartService:
-    def __init__(self, root):
+    def __init__(self, root, database=None, writer=None):
+        # Local mode: private SQLite registry next to the app. Online mode: one shared
+        # registry (SQLite on the server or PostgreSQL) and the administrator's key.
+        from online import Database
         self.folder = Path(root) / 'paniers'
-        self.writer = CartWriter(self.folder / 'cle-paniers.key')
+        self.local = database is None
+        self.db = database or Database(sqlite_path=self.folder / 'registre.sqlite')
+        self.writer = writer or CartWriter(self.folder / 'cle-paniers.key')
         self.previews = {}
+        self.schema_ready = False
 
     @contextmanager
     def database(self):
-        self.folder.mkdir(mode=0o700, exist_ok=True)
-        self.folder.chmod(0o700)
-        path = self.folder / 'registre.sqlite'
-        db = sqlite3.connect(path)
-        path.chmod(0o600)
-        db.row_factory = sqlite3.Row
-        db.execute('CREATE TABLE IF NOT EXISTS carts (operation TEXT PRIMARY KEY, order_ref TEXT NOT NULL, customer INTEGER NOT NULL, shop INTEGER NOT NULL, state TEXT NOT NULL, cart_id INTEGER, expected TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(order_ref,customer,shop))')
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+        if self.local:
+            self.folder.mkdir(mode=0o700, exist_ok=True)
+            self.folder.chmod(0o700)
+        with self.db.connect() as db:
+            if not self.schema_ready:
+                db.execute('CREATE TABLE IF NOT EXISTS carts (operation TEXT PRIMARY KEY, order_ref TEXT NOT NULL, customer INTEGER NOT NULL, shop INTEGER NOT NULL, state TEXT NOT NULL, cart_id INTEGER, expected TEXT NOT NULL, created_at TEXT, created_by TEXT, UNIQUE(order_ref,customer,shop))')
+                # Registries created before the online version have no author column.
+                if 'created_by' not in db.columns('carts'):
+                    db.execute('ALTER TABLE carts ADD COLUMN created_by TEXT')
+                self.schema_ready = True
+            yield db
 
     def history(self):
         with self.database() as db:
-            return {'items': [dict(row) for row in db.execute('SELECT operation,order_ref,customer,shop,state,cart_id,created_at FROM carts ORDER BY created_at DESC LIMIT 30')]}
+            return {'items': db.execute('SELECT operation,order_ref,customer,shop,state,cart_id,created_at,created_by FROM carts ORDER BY created_at DESC LIMIT 30').fetchall()}
 
-    def prepare(self, payload, result, profile):
+    def prepare(self, payload, result, profile, user=None):
         ref = str(payload.get('cart', {}).get('order_ref', '')).strip()
         if not 1 <= len(ref) <= 120:
             raise ValueError('Renseignez une référence de commande client (120 caractères maximum).')
@@ -222,12 +243,13 @@ class CartService:
         ticket = secrets.token_urlsafe(32)
         # Store the source server-side. The commit cannot supply arbitrary cart rows.
         clean = {k: payload[k] for k in ('rows', 'shop', 'price_source', 'cart')}
-        self.previews[ticket] = {'payload': json.loads(json.dumps(clean)), 'expected': expected, 'order_ref': ref, 'expires': time.time() + 600}
+        self.previews[ticket] = {'payload': json.loads(json.dumps(clean)), 'expected': expected, 'order_ref': ref, 'expires': time.time() + 600, 'user': user}
         return {'ticket': ticket, 'result': result, 'customer': profile['label'], 'quantity': sum(row['quantity'] for row in expected['rows']), 'order_ref': ref}
 
-    def preview(self, ticket):
+    def preview(self, ticket, user=None):
         preview = self.previews.get(ticket)
-        if preview is None or preview['expires'] < time.time():
+        # A preparation belongs to the person who made it.
+        if preview is None or preview['expires'] < time.time() or preview.get('user') != user:
             raise ValueError('Préparation expirée. Vérifiez à nouveau le panier.')
         return preview
 
@@ -252,11 +274,11 @@ class CartService:
             db.execute("UPDATE carts SET state='verified' WHERE operation=?", (record['operation'],))
         return {'created': True, 'verified': True, 'cart_id': record['cart_id'], 'order_ref': record['order_ref']}
 
-    def commit(self, ticket, result, profile):
+    def commit(self, ticket, result, profile, user=None):
         previous = self.existing(ticket)
         if previous:
             return previous
-        preview = self.preview(ticket)
+        preview = self.preview(ticket, user)
         expected = expected_cart(profile, merged_rows(result))
         if expected != preview['expected']:
             raise ValueError('Les quantités disponibles ou les informations client ont changé. Aucun panier créé. Préparez à nouveau le panier pour vérifier les nouvelles quantités.')
@@ -264,9 +286,10 @@ class CartService:
         # Persist intent before any POST. A crash or timeout must never cause a retry.
         with self.database() as db:
             try:
-                db.execute('INSERT INTO carts(operation,order_ref,customer,shop,state,expected) VALUES(?,?,?,?,?,?)',
-                    (ticket, preview['order_ref'], expected['id_customer'], expected['id_shop'], 'uncertain', json.dumps(expected)))
-            except sqlite3.IntegrityError:
+                db.execute('INSERT INTO carts(operation,order_ref,customer,shop,state,expected,created_at,created_by) VALUES(?,?,?,?,?,?,?,?)',
+                    (ticket, preview['order_ref'], expected['id_customer'], expected['id_shop'], 'uncertain', json.dumps(expected),
+                     time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime()), user))
+            except self.db.IntegrityError:
                 raise ValueError('Envoi déjà enregistré. Consultez le registre des paniers.') from None
         try:
             root = self.writer.request('POST', '/carts', body=body, shop=expected['id_shop'])

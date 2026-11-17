@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FullMoon · Connexion</title>
+<link rel="icon" type="image/png" href="/assets/favicon.png">
+<link rel="stylesheet" href="/style.css">
+<script src="/connexion.js" defer></script>
+</head>
+<body class="signin">
+<header class="topbar">
+ <div class="topbar-inner">
+  <img class="logo" src="/assets/logo-fullmoon.png" alt="FullMoon" width="155" height="32">
+  <span class="divider"></span><span class="product">Commandes & stocks</span>
+ </div>
+</header>
+<main class="signin-main">
+ <form class="card signin-card" id="signin" novalidate>
+  <h1>Connexion</h1>
+  <p class="hint">Accès réservé à l’équipe FullMoon. Chaque personne a son propre identifiant.</p>
+  <label>Identifiant<input id="username" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required maxlength="40"></label>
+  <label>Mot de passe<input id="password" name="password" type="password" autocomplete="current-password" required></label>
+  <label>Code à 6 chiffres <small>(seulement si votre compte en demande un)</small><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" pattern="[0-9 ]*"></label>
+  <button id="submit" type="submit">Se connecter</button>
+  <p id="message" class="notice" role="alert" hidden></p>
+ </form>
+</main>
+</body>
+</html>

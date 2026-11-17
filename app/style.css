@@ -308,3 +308,14 @@ footer img{border-radius:6px}
  [id]{scroll-margin-top:190px}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.card.will-reveal{opacity:1;transform:none}}
+
+/* Version en ligne : page de connexion et utilisateur connecté */
+.signin-main{max-width:440px;margin:56px auto;padding:0 16px}
+.signin-card h1{margin:0 0 6px;font-size:24px}
+.signin-card .hint{margin:0 0 22px;color:#77737a;font-size:13px}
+.signin-card label{margin-bottom:16px}
+.signin-card label small{font-weight:500;color:#8a868d}
+.signin-card button{width:100%;margin-top:6px}
+.signin-card .notice{margin-top:16px}
+.userchip{display:inline-flex;align-items:center;gap:10px;margin-left:8px;color:#d8d8de;font-size:12px;font-weight:600}
+.userchip button{padding:6px 12px;border-radius:99px;font-size:12px;background:rgba(255,255,255,.1);box-shadow:none}
